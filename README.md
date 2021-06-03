@@ -1,5 +1,6 @@
 # UWNHRando
 Uncharted Waters: New Horizons randomizer for the SNES
+Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
 Version 1.0
 -Randomize the world map and your initial ship
