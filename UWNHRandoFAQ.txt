@@ -5,8 +5,14 @@ I have fond memories of the Uncharted Waters fanchise, and while I did not play 
 
 Note: There is no command line utility for this randomizer; only a UI version. I will only make a command-line one available should there be a demand for it.
 
-II. Map generation
+II. General Flags
 Version 1.0 allows for map randomization.  Select a number of continents, number of islands, and polar ice thickess.  The randomizer will generate a map and replace the in-game mini-map with the newly generated map.  Randomizing the map eliminates the rectangle of "Known world" available on the original map.
+
+You can randomize your starting ship.  It's most likely to be beneficial for everyone except for Catalina (who starts with a Galleon!)  Your initial ship crew, provisions, and any cargo remain unchanged.
+
+You can also decide to view the game's Mini-map upon generation of the ROM.  A small window showing what is essentially the game's minimap pops up when the ROM is generated.  (Alternatively, you can start the game "completely blind")
+
+Also, the randomizer creates a "diffreport.txt" file that is used for debugging purposes when a ROM is generated.
 
 III. Theme generation
 World themes allow customization of the Uncharted Waters world by allowing to rename all ports, kingdoms, map regions, and commodities.
@@ -20,7 +26,7 @@ You can save themes using the UI.  Themes are saved to the Randomizer's director
 Notes:
 -Kingdom names in the original game are Portugal, Spain, Turkey, Italy, Englad and Holland.  Items pertaining to those kingdoms (the Letter of Marque and Tax-Free Permit) have a prefix indicating the Kingdom's first initial.  The randomizer will change this indicator according to the first initial of the new Kingdom name.  Also note that the randomizer will automatically change the Turkish items names to start with (T) instead of (O) due to this algorithm.
 -Cultural (graphical) tileset pertains to the tileset used to generate buildings at the port.  See the randomizer for a listing of the different ones.  Capitals and the port Mecca require the palace tileset, so choices for tileset at those ports are limited to European Shingle, European Wood and Middle Eastern.
--I have found that changing the tileset of capitals may cause a softlock right at the start of your game.  If you have problems with this, don't change the graphical tileset of capitals.
+-I have found that changing the tileset (culture) of capitals may cause a softlock right at the start of your game.  If you have problems with this, don't change the graphical tileset of capitals.
 -Further port look changes were achieved by applying a "possible palette" change applicible at different lattitudes.  Striking examples include the Chinese tileset in desert (tropical) regions and the Caribbean Hut tileset in boreal/arctic regions.
 -Port music is tiled to the market type of the port, not the port's graphical tileset.  I may change this in future versions.
 -Ports with their specialty goods changed will have their buy prices changed to 75%-200% of the price they would normally be bought for (based on that port's original market type), skewed toward roughly 106%.  (This is to avoid Lubeck situations).  Required market investment is also redone based on the good.
@@ -30,7 +36,7 @@ Notes:
 Editing .thm files:
 Theme files are simple text files that can be edited via a text editor.  The format is as follows:
 [Kingdoms]
-...List of Kingdom names and adjectives, one per line
+...List of Kingdom names and proper adjectives, one per line
 
 [Areas]
 ...list of trade areas, one per line
@@ -60,11 +66,12 @@ Notes:
 -Spaces and the dash indicate a line break.  The randomizer's algorithm for handling these is to put a second line after the break if the first line would exceed 8 characters in the word after the break.  This differs from the original game's line break placement in some cases.
 
 
-IV.  Known issues (bugs)
--Some villages may not show up on the map even after you discover them.  You can tell this will happen if you see ports that you have not yet discovered show up on the map. 
+IV.  Known issues (bugs) 
+-Junk may appear at the top edge of the game minimap.  This started happening when I allowed maps to have more than 490 minimap tiles.  (It's better than invalidating the ROM IMHO).
 -There is a (very) minimal chance that ports may be placed in an inaccessible location.
 -The game may softlock if you change the graphical tileset ("Culture") of capitals. (Again, the solution is to simply leave those alone).
--This version has not been completely tested as of this release.  Thus, randomizing the map may make the game impossible to beat.
+-This version has not been completely tested as of this release.  Thus, randomizing the map may make the game impossible to beat.  
+ (Especially for Pietro, who needs to sail from Genoa to Lisbon right at the start of the scenario).
 
 V.  Future development
 I am releasing this relatively untested version of the randomizer to simply test the demand, and at this time my energy is needed on other projects.  However, the following future development is planned for this randomizer:
