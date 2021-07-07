@@ -2,6 +2,11 @@
 Uncharted Waters: New Horizons randomizer for the SNES
 Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
+Version 1.01
+ - Added a makeLog.txt for further tracking ROM generation errors
+ - Increased the ROM generation timeout from 20 seconds to 2 minutes (for slower machines)
+ - Made a minor change to continent placement to increase randomness
+
 Version 1.0
  - Randomize the world map and your initial ship
  - Option to view minimap of newly created world
