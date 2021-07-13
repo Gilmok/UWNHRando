@@ -6,6 +6,7 @@ Version 1.01
  - Added a makeLog.txt for further tracking ROM generation errors
  - Increased the ROM generation timeout from 20 seconds to 2 minutes (for slower machines)
  - Made a minor change to continent placement to increase randomness
+ - Fixed archipelago placement (so that they are not all on the top left corner)
 
 Version 1.0
  - Randomize the world map and your initial ship
