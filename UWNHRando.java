@@ -778,6 +778,10 @@ class SNESRom
 		System.out.println("Map dump complete - now output minimap");
 		GameMiniMap gmp = new GameMiniMap(this);
 		gmp.createMiniMap(map, viewMiniMap);
+		/*if(viewMiniMap)
+		{
+			GameMapWindow gmw = new GameMapWindow(map);
+		}*/
 		gmp.testCompressedBytes(this, map);
 		map.editKnownWorld(this);
 		
@@ -10787,22 +10791,31 @@ class GameMap
 	
 	private void makeArchipelago(Rectangle r)
 	{
-		int fails = 0;
-		ArrayList<Rectangle> arcrs = new ArrayList<Rectangle>();
-		while(fails < 300)
+		
+		//cut one side in half
+		if(UWNHRando.rand() > 0.5)
+			r.width /= 2;
+		else
+			r.height /= 2;
+		for(int i = 0; i < 3; i++)
 		{
-			int rw = (int) (UWNHRando.rand() * 20) + 5;
-			int rh = (int) (UWNHRando.rand() * 20) + 5;
-			int rx = (int) (UWNHRando.rand() * (r.width - rw));
-			int ry = (int) (UWNHRando.rand() * (r.height - rh));
-			Rectangle ir = new Rectangle(rx, ry, rw, rh);
-			if(testAgainstList(ir, arcrs))
+			int fails = 0;
+			ArrayList<Rectangle> arcrs = new ArrayList<Rectangle>();
+			while(fails < 50)
 			{
-				makeIsland(ir);
-				arcrs.add(ir);
+				int rw = (int) (UWNHRando.rand() * 60) + 15;
+				int rh = (int) (UWNHRando.rand() * 60) + 15;
+				int rx = (int) (UWNHRando.rand() * (r.width - rw)) + r.x;
+				int ry = (int) (UWNHRando.rand() * (r.height - rh)) + r.y;
+				Rectangle ir = new Rectangle(rx, ry, rw, rh);
+				if(testAgainstList(ir, arcrs))
+				{
+					makeIsland(ir);
+					arcrs.add(ir);
+				}
+				else
+					fails++;
 			}
-			else
-				fails++;
 		}
 	}
 	
