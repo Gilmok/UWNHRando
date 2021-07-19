@@ -13009,6 +13009,7 @@ class FlagPanel extends JPanel implements ActionListener, ChangeListener
 			this.slider = true;
 			slideText = options[0];
 			slideDesc = new JLabel(options[0]);
+			checks = new JCheckBox[0];
 			//setLayout(new GridLayout(1,1));
 			return;
 		}
@@ -14020,6 +14021,8 @@ class RandomizerWindow extends JFrame implements ActionListener
 			String s2 = s.substring(idx + ff.length(), s.length());
 			inputLines[2].setTextText(s1 + s2);
 			updateSaveName();
+			if(ff.equals("M"))
+				clearMapFlags();
 		}
 	}
 	
@@ -14049,6 +14052,46 @@ class RandomizerWindow extends JFrame implements ActionListener
 		}
 		inputLines[2].setTextText(s);
 		updateSaveName();
+		if(fl == 'M')
+		{
+			setMapFlags();
+		}
+	}
+	
+	private void setMapFlags()
+	{
+		for(int i = 0; i < opts.size(); i++)
+		{
+			FlagPanel fp = opts.get(i);
+			if(fp.flags[0].equals("C") || fp.flags[0].equals("I") || fp.flags[0].equals("O"))
+			{
+				String hFlag = fp.flags[0] + fp.slide.getValue();
+				setFlag(hFlag);
+			}
+		}
+	}
+	
+	private void clearMapFlags()
+	{
+		String[] mchars = {"C", "I", "O"};
+		for(int i = 0; i < mchars.length; i++)
+		{
+			String s = inputLines[2].txt.getText();
+			int x = s.indexOf(mchars[i]);
+			if(x >= 0)
+			{
+				//String fl = "";
+				int y = x + 1;
+				while(s.charAt(y) < 'A')  //while s is a number
+				{
+					y++;
+					if(y >= s.length())
+						break;
+				}
+				String fl = s.substring(x, y);
+				clearFlag(fl);
+			}
+		}
 	}
 	
 	private String loadTextFile(String tf)
