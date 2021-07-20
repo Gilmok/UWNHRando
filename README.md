@@ -2,6 +2,8 @@
 Uncharted Waters: New Horizons randomizer for the SNES
 Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
+Note:  This randomizer assumes that a ROM has the 512 byte header.  If your rom does not have this (it is 4,194,304 bytes instead of 4,194,816 bytes) you may need to put one in to make it work.
+
 Version 1.01
  - Added a makeLog.txt for further tracking ROM generation errors
  - Increased the ROM generation timeout from 20 seconds to 2 minutes (for slower machines)
