@@ -2,7 +2,7 @@
 Uncharted Waters: New Horizons randomizer for the SNES
 Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
-Note:  This randomizer assumes that a ROM has the 512 byte header.  If your rom does not have this (it is 2,097,152 bytes instead of 2,097,664 bytes) you may need to put one in to make it work.
+Note:  The latest version can now process headerless ROMs.
 
 Version 1.01
  - Added a makeLog.txt for further tracking ROM generation errors
@@ -17,7 +17,7 @@ Version 1.0
  - Randomize port market types, shipyard types, specialty good and graphical tileset (a.k.a. "culture")
 
 Known issues:
- - Junk may appear at the top of the in-game minimap.
+ - Junk may appear at the top of the in-game minimap.  The latest version significantly reduces this.
  - There is a (very) minimal chance that ports may be placed in an inaccessible location.
  - The game may softlock if you change the graphical tileset ("Culture") of capitals.
  - Randomizing the map may make the game impossible to beat.  
