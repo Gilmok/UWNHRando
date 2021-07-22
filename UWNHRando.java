@@ -207,6 +207,11 @@ class SNESRom
 		filename = fn;
 		byte[] allData = loadData(fn);
 		setHomeDir(fn);
+		if(allData.length == (1024 * 1024 * 2))  //headerless
+		{
+			data = allData;
+			return;
+		}
 		header = new byte[512];
 		data = new byte[allData.length - 512];
 		for(int i = 0; i < 512; i++)
@@ -299,7 +304,8 @@ class SNESRom
 		try 
 		{
 			fos = new FileOutputStream(fname);
-			fos.write(header);
+			if(header != null)
+				fos.write(header);
 			fos.write(data);
 			fos.close();
 		} 
@@ -434,11 +440,11 @@ class SNESRom
 		String c = "This randomizer also features a world Theme creator. Rename any port, kingdom, discovery, "
 				+ "and even rename the commodities you trade!";
 		String d = "Future plans for this randomizer include renaming of "
-				+ "of treasure items, editing discovery text, crew data, and even editing the game scripts!";
+				+ "treasure items, editing discovery text, crew data, and even editing the game scripts!";
 		String e = "This randomizer is in early alpha. It has known issues and has not been extensivly tested. "
 				+ "See the FAQ for details, and as always, watch out for storms!";
 		String f = "Thanks again for playing this randomizer. Also try Ultima 4 NES Randomizer and DW Monopoly, "
-				+ "both available on the Gilmok gitub. Sincerely yours, Gilmok.";
+				+ "both available on the Gilmok github. Sincerely yours, Gilmok.";
 		String[] set = {a, b, c, d, e, f};
 		
 		int loc = 965721 - 512;
@@ -9066,6 +9072,8 @@ class GameMiniMap
 	private int mmPortTilesLoc;
 	private int mmLayoutLoc;
 	
+	private static final int TILE_BASE = 6145;  //0x1801
+	
 	//minimap output is a0c2->a0fe +  (
 	
 	GameMiniMap(SNESRom rom)
@@ -9485,23 +9493,26 @@ class GameMiniMap
 			}
 			portY += 48;
 		}
-		System.out.println(allTiles.size() + " minmap tiles out of 490 possible");
-		int tileCount = 528;
-		if(allTiles.size() > 490)
-		{
+		System.out.println(allTiles.size() + " minmap tiles out of 490 original");
+		//first make sure the minimap is loading the right tiles (offset 1, not offset 32)
+		//at c53f60
+		rom.data[344416 - 512] = 1;
+		/*int tileCount = 528;
+		if(allTiles.size() != 490)
+		{*/
 			//c53f5c pushes the number of minimap tiles onto the stack
-			tileCount = 528 - 490 + allTiles.size();
+			int tileCount = allTiles.size() + 18;  //need to add the 18 tiles used for the map trimming
 			int tcLoc1 = 344413 - 512;
 			rom.writeShort(tcLoc1, tileCount);
 			//c53ffb pushes the offset of tiles for city tiles
 			int tcLoc2 = 344572 - 512;
-			tileCount += 32;
-			rom.writeShort(tcLoc2, tileCount);
-			tileCount -= 32;
+			//tileCount += 32;
+			rom.writeShort(tcLoc2, tileCount + 1);
+			//tileCount -= 32;
 			//System.out.println("Too many minimap tiles");
 			//return false;
 			
-		}
+		//}
 		ArrayList<Integer> counts2 = new ArrayList<Integer>();
 		for(int i = 0; i < cityCounts.size(); i++)
 		{
@@ -9524,29 +9535,29 @@ class GameMiniMap
 		{
 			System.out.println(counts2.get(i) + ":" + counts2.get(i + 1));
 		}
-		System.out.println(portTiles.size() + " city tiles out of 192 possible");
-		if(tileCount > 528)
-		{
-			int d = tileCount - 528;
+		System.out.println(portTiles.size() + " city tiles out of 192 original");
+		//if(tileCount > 528)
+		//{
+			int d = tileCount - 559;
 			//c5446a is lda 1e30; we need to adjust this value according to the new start location for city tiles
 			int valloc = 345707 - 512;
 			short val = rom.readShort(valloc);
 			val += d;
 			rom.writeShort(valloc, val);
 			System.out.println("City tiles were moved ahead " + d + " spaces.");
-		}
+		//}
 		tileCount += portTiles.size();
-		if(portTiles.size() > 192)
-		{
+		//if(portTiles.size() != 192)
+		//{
 			//c53ff8 pushes the number of city tiles to copy
 			int ccountLoc = 344569 - 512;
 			rom.writeShort(ccountLoc, portTiles.size());
 			//System.out.println("Too many city tiles");
 			//return false;
-		}
-		if(tileCount > 960)
+		//}
+		if(tileCount > 770)  
 		{
-			System.out.println("Minimap tile count is " + tileCount + " which exceeded maximum 960 total tiles");
+			System.out.println("Minimap tile count is " + tileCount + " which exceeded maximum 770 total tiles");
 			return false;
 		}
 		return true;
@@ -9601,19 +9612,21 @@ class GameMiniMap
 	{
 		int[] presList = {0,1,2,3,33,19*16+7,20*16+5,21*16+13,21*16+14,21*16+15,22*16+0,22*16+1,22*16+11,23*16+6,31*16+6,32*16+5,32*16+6,32*16+7};
 		int[] newLoc = new int[presList.length];
+		boolean[] used = new boolean[presList.length];
+		ArrayList<Byte[]> borderTiles = new ArrayList<Byte[]>();
 		for(int i = 0; i < presList.length; i++)
 		{
+			int offset = presList[i] * 32;
 			byte[] ot = new byte[32];
 			Byte[] bot = new Byte[32];
-			int offset = presList[i] * 32;
 			for(int j = 0; j < 32; j++)
 			{
 				ot[j] = origTiles.get(offset + j);
 				bot[j] = (Byte) ot[j];
 			}
-			newLoc[i] = newTiles.size();
-			newTiles.add(bot);
-			
+			//newLoc[i] = newTiles.size();
+			borderTiles.add(bot);
+			used[i] = false;
 		}
 		int layoutLoc = 736814 - 512;  //cb3c2e
 		/*int lld = layoutLoc;
@@ -9646,9 +9659,15 @@ class GameMiniMap
 			short val = rom.readShort(layoutLoc);
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + i + " y=" + 0 + " val=" + val + " loc=" + loc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 2;
 		}
@@ -9657,9 +9676,15 @@ class GameMiniMap
 			short val = rom.readShort(layoutLoc);
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + 0 + " y=" + i + " val=" + val + " loc=" + loc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 64;
 		}
@@ -9668,9 +9693,15 @@ class GameMiniMap
 			short val = rom.readShort(layoutLoc);
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + i + " y=" + 0 + " val=" + val + " loc=" + loc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 2;
 		}
@@ -9679,9 +9710,15 @@ class GameMiniMap
 			int val = rom.readShort(layoutLoc) & 65535;
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + i + " y=" + 0 + " val=" + val + " loc=" + loc + "  at " + layoutLoc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 2;
 		}
@@ -9690,9 +9727,15 @@ class GameMiniMap
 			int val = rom.readShort(layoutLoc) & 65535;
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + 0 + " y=" + i + " val=" + val + " loc=" + loc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 30;
 		}
@@ -9701,9 +9744,15 @@ class GameMiniMap
 			int val = rom.readShort(layoutLoc) & 65535;
 			val -= 6176;
 			int loc = Arrays.binarySearch(presList, val);
+			if(!used[loc])
+			{
+				used[loc] = true;
+				newLoc[loc] = newTiles.size();
+				newTiles.add(borderTiles.get(loc));
+			}
 			//System.out.println("x=" + i + " y=" + 0 + " val=" + val + " loc=" + loc);
 			val = (short) newLoc[loc];
-			val += 6176;
+			val += TILE_BASE;
 			rom.writeShort(layoutLoc, val);
 			layoutLoc += 2;
 		}
@@ -9713,6 +9762,7 @@ class GameMiniMap
 	{
 		backupMap();
 		convertValues();
+		
 		boolean good = makeLayout(map, rom);
 		if(!good)
 		{
@@ -9884,7 +9934,7 @@ class GameMiniMap
 			//first row is map top
 			for(int xx = 0; xx < 31; xx++)
 			{
-				rom.writeShort(layoutLoc, tileLayout[yy][xx] + 6176);
+				rom.writeShort(layoutLoc, tileLayout[yy][xx] + TILE_BASE);
 				layoutLoc += 2;
 			}
 			layoutLoc += 2;
@@ -9897,7 +9947,7 @@ class GameMiniMap
 			//first row is map top
 			for(int xx = 0; xx < 14; xx++)
 			{
-				rom.writeShort(layoutLoc, tileLayout[yy][xx + 31] + 6176);
+				rom.writeShort(layoutLoc, tileLayout[yy][xx + 31] + TILE_BASE);
 				layoutLoc += 2;
 			}
 			layoutLoc += 2;
