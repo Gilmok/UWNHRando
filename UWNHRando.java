@@ -56,6 +56,8 @@ import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import javax.swing.table.AbstractTableModel;
@@ -197,7 +199,7 @@ class SNESRom
 	
 	String filename;
 	String homeDir;
-	public boolean romInvalid;
+	public byte romInvalid;
 	
 	String[][][] romOrigTheme;
 	private boolean viewMiniMap;
@@ -341,6 +343,8 @@ class SNESRom
 	public String hexAddr(String hexString, boolean twoBytes)  //this converts a hex string to a hex address by splitting and reversing it
 	{
 		String rv = "";
+		if(hexString.length() == 1)
+			hexString = "0" + hexString;
 		for(int i = hexString.length() - 2; i >= 0; i -= 2)
 		{
 			rv += hexString.charAt(i);
@@ -349,6 +353,12 @@ class SNESRom
 			if(twoBytes && rv.length() == 6)
 				break;
 		}
+		rv = rv.trim();
+		int min = 7;
+		if(twoBytes)
+			min = 5;
+		while(rv.length() < min)
+			rv = rv + " 00";
 		return rv.trim();
 	}
 	
@@ -465,7 +475,7 @@ class SNESRom
 	
 	public GameMap randomizeMap(int nContinents, int nIslands, int iceCapThick, boolean randomizePorts)
 	{
-		romInvalid = false;
+		romInvalid = 0;
 		//randomize world map
 		GameMap map = new GameMap();
 		map.makeMap(nContinents, nIslands, iceCapThick);
@@ -477,7 +487,7 @@ class SNESRom
 		System.out.println("Map size is " + sz + " bytes");
 		if(sz > 77313)
 		{
-			romInvalid = true;
+			romInvalid = 1;  //compressed map size too large
 			return null;
 		}
 		
@@ -1253,9 +1263,11 @@ class SNESRom
 		return rv;
 	}
 
-	public SNESRom randomize(String flags, String outFile, boolean toRomDir, String[][][] theme) 
+	public SNESRom randomize(String flags, String outFile, String failure[], boolean toRomDir, String[][][] theme) 
 	{
 		String newDir = outFile.substring(0, outFile.lastIndexOf(File.separator));
+		String fn = outFile.substring(newDir.length() + 1);
+		UWNHRando.setOutputRomName(fn);
 		if(toRomDir)  //new ROM going to the ROM's original directory
 		{
 			if(newDir != homeDir)
@@ -1264,7 +1276,7 @@ class SNESRom
 				outFile = homeDir + outFile;
 			}
 		}
-		else   //
+		else   //new ROM going to Randomizer's directory
 		{
 			homeDir = newDir;
 		}
@@ -1284,8 +1296,8 @@ class SNESRom
 		String[][][] origTheme = getOrigThemeData();
 		//applyTheme(theme);
 		LinkedHashMap<String, Integer> flagMap = new LinkedHashMap<String, Integer>();
-		String[] okFlags =  {"M", "C", "I", "O", "S", "V"};
-		boolean[] usesVal = {false, true, true, true, false, false};
+		String[] okFlags =  {"M", "C", "I", "O", "S", "V", "R", "K"};
+		boolean[] usesVal = {false, true, true, true, false, false, false, false};
 		for(int i = 0; i < okFlags.length; i++)
 			flagMap.put(okFlags[i], -1);
 		while(flags.length() > 0)
@@ -1356,6 +1368,12 @@ class SNESRom
 			case 'V':
 				viewMiniMap = true;
 				break;
+			case 'R':
+				randomizeMarketRates();
+				break;
+			case 'K':
+				//randomizeMarketTypes();
+				break;
 			}
 		}
 		if(randomizeMap)
@@ -1369,8 +1387,16 @@ class SNESRom
 			applyTheme(theme, origTheme);
 			randomizePorts(pd);
 		}
-		if(romInvalid)
+		if(romInvalid > 0)
+		{
+			switch(romInvalid)
+			{
+			case 1:  failure[0] = "Compressed map was too large";  break;
+			case 2:  failure[0] = "Too many minimap tiles generated"; break;
+			case 3:  failure[0] = "Coudn't fit compressed minimap tiles";  break;
+			}
 			return null;
+		}
 		dumpRom(outFile, true);
 		try
 		{
@@ -1388,6 +1414,39 @@ class SNESRom
 		//return this;
 	}
 	
+	private void randomizeMarketTypes() //incomplete for now
+	{
+		//there are 13 market types
+		int writeLoc = 725924 - 512;
+		for(int i = 0; i < 13; i++)
+		{
+			
+			//buy prices
+			for(int j = 0; j < 46; j++)
+			{
+				
+			}
+			//sell prices (should be greater than respective buy price by at least 30%)
+			//available goods (ff = none)
+			//req'd industry to sell
+		}
+	}
+
+	private void randomizeMarketRates() 
+	{
+		int writeLoc = 580749 - 512;
+		for(int i = 0; i < 100; i++)
+		{
+			// randomly sets each market sub-index from 0-100 
+			// (50 is added to this value to get the final sub-index)
+			// average market index is calculated from the 10 sub-indeces
+			for(int j = 0; j < 10; j++)
+				data[writeLoc + j] = (byte) (UWNHRando.rand() * 100);
+			writeLoc += 37;
+		}
+		
+	}
+
 	private ArrayList<Byte> divideString(String in, boolean commod)
 	{
 		ArrayList<Integer> spc = new ArrayList<Integer>();
@@ -9283,6 +9342,204 @@ class GameMiniMap
 		}
 	}
 	
+	//int leftoverTiles;
+	int leftoverStart;
+	
+	class LayoutTiles
+	{
+		ArrayList<Byte[]> mmTiles1;
+		ArrayList<Byte[]> mmTiles2;
+		ArrayList<Byte[]> mmTiles3;
+		//int[] oldIdx;
+		int[] newIdx;
+		//ArrayList<Integer> skipMe;
+		//byte addingTo;
+		
+		LayoutTiles()
+		{
+			mmTiles1 = new ArrayList<Byte[]>();
+			mmTiles2 = new ArrayList<Byte[]>();
+			mmTiles3 = new ArrayList<Byte[]>();
+			//addingTo = 0;
+			/*skipMe = new ArrayList<Integer>();
+			int v = 8;
+			for(int i = 0; i < 28; i++)
+			{
+				skipMe.add(v);
+				v += 2;
+			}*/
+		}
+		
+		public ArrayList<Byte[]> process(SNESRom rom)
+		{
+			int sz = allTiles.size();
+			newIdx = new int[sz]; 
+			int a = leftoverStart;
+			int b = a + 42;
+			int e1 = Math.min(sz, a);
+			int e2 = Math.min(sz, b);
+			//int e3 = sz;
+			for(int i = 0; i < e1; i++)  //tiles starting in pos 4000+1 (starts at 0)
+			{
+				Byte[] tile = allTiles.get(i);
+				if(i == 14)
+					addEmptyTile(mmTiles1);
+				newIdx[i] = mmTiles1.size();
+				mmTiles1.add(tile);
+				
+			}
+			for(int i = e1; i < e2; i++)  //tiles starting in pos a740+1 (starts at 825)
+			{
+				Byte[] tile = allTiles.get(i);
+				int j = i - e1;
+				if(j >= 8 && j < 36)
+				{
+					addEmptyTile(mmTiles2);
+				}
+				newIdx[i] = 825 + mmTiles2.size();
+				mmTiles2.add(tile);
+			}
+			for(int i = e2; i < sz; i++)  //tiles starting in pos b700+1 (starts at 951)
+			{
+				Byte[] tile = allTiles.get(i);
+				int j = i - e2;
+				if(j >= 8 && j < 36)
+				{
+					addEmptyTile(mmTiles3);
+				}
+				newIdx[i] = 951 + mmTiles3.size();
+				mmTiles3.add(tile);
+			}
+			reprocessLayout();
+			reprocessEdge(rom);
+			putCopyCode(rom);
+			ArrayList<Byte[]> rv = new ArrayList<Byte[]>();
+			rv.addAll(mmTiles1);
+			rv.addAll(mmTiles2);
+			rv.addAll(mmTiles3);
+			return rv;
+		}
+		
+		private void reprocessLayout()
+		{
+			for(int y = 0; y < tileLayout.length; y++)
+				for(int x = 0; x < tileLayout[y].length; x++)
+					tileLayout[y][x] = (short) newIdx[tileLayout[y][x]]; 
+		}
+		
+		private void reprocessEdge(SNESRom rom)
+		{
+			int layoutLoc = 736814 - 512;  //cb3c2e
+			for(int i = 0; i < 32; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 2;
+			}
+			for(int i = 0; i < 23; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 64;
+			}
+			for(int i = 0; i < 32; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 2;
+			}
+			for(int i = 0; i < 14; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 2;
+			}
+			for(int i = 0; i < 23; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 30;
+			}
+			for(int i = 0; i < 16; i++)
+			{
+				short val = rom.readShort(layoutLoc);
+				val -= TILE_BASE;
+				val = (short) newIdx[val];
+				val += TILE_BASE;
+				rom.writeShort(layoutLoc, val);
+				layoutLoc += 2;
+			}
+		}
+		
+		private void putCopyCode(SNESRom rom)
+		{
+			int tcLoc1 = 344413 - 512;
+			rom.writeShort(tcLoc1, mmTiles1.size());
+			if(mmTiles2.size() > 0)
+			{
+				System.err.println(mmTiles2.size() + " a740 tiles are present");
+				int codeLoc = 2024158 - 512;
+				int callLoc = 344431 - 512;
+				String call = "22 de e0 de";
+				byte[] bts = rom.strToBytes(call);
+				rom.writeBytes(callLoc, bts);
+				int v1 = 32768 + (mmTiles1.size() * 32);
+				String sv1 = rom.hexAddr(Integer.toHexString(v1), true);
+				int v2 = mmTiles2.size();
+				String sv2 = rom.hexAddr(Integer.toHexString(v2), true);
+				String copy1 = "f4 02 00 f4 7f 00 f4 " + sv1 + " f4 " + sv2 + " f4 3a 03 f4 0b 00 22 00 80 c0 3b 18 69 0c 00 1b";
+				bts = rom.strToBytes(copy1);
+				rom.writeBytes(codeLoc, bts);
+				int len1 = bts.length;
+				if(mmTiles3.size() > 0)
+				{
+					System.err.println(mmTiles3.size() + " b700 tiles are present");
+					v1 = 32768 + ((mmTiles1.size() + mmTiles2.size()) * 32);
+					sv1 = rom.hexAddr(Integer.toHexString(v1), true);
+					v2 = mmTiles3.size();
+					sv2 = rom.hexAddr(Integer.toHexString(v2), true);
+					String copy2 = "f4 02 00 f4 7f 00 f4 " + sv1 + " f4 " + sv2 + " f4 b8 03 f4 0b 00 22 00 80 c0 3b 18 69 0c 00 1b " +
+							       "af 6a d5 cc 60";
+					bts = rom.strToBytes(copy2);
+					rom.writeBytes(codeLoc + 32, bts);
+					String copy3 = "20 fe e0 6b";
+					bts = rom.strToBytes(copy3);
+					rom.writeBytes(codeLoc + len1, bts);
+				}
+				else
+				{
+					String copy3 = "af 6a d5 cc 6b";
+					bts = rom.strToBytes(copy3);
+					rom.writeBytes(codeLoc + len1, bts);
+				}
+			}
+			
+		}
+		
+		private void addEmptyTile(ArrayList<Byte[]> list)
+		{
+			Byte[] empty = new Byte[32];
+			for(int i = 0; i < 32; i++)
+				empty[i] = 0;
+			list.add(empty);
+		}
+	}
+	
 	private boolean makeLayout(GameMap map, SNESRom rom)
 	{
 		tileLayout = new short[23][45];
@@ -9448,6 +9705,8 @@ class GameMiniMap
 					found = allTiles.size();
 					allTiles.add(tx);
 				}
+				/*if(found >= 14)  //shift 1 for the tile we cannot use - taken care of later
+					found++;*/
 				tileLayout[yy >> 3][xx >> 3] = (short) found;
 				
 				//subTile matching can only be done when there is only one city-
@@ -9494,25 +9753,8 @@ class GameMiniMap
 			portY += 48;
 		}
 		System.out.println(allTiles.size() + " minmap tiles out of 490 original");
-		//first make sure the minimap is loading the right tiles (offset 1, not offset 32)
-		//at c53f60
-		rom.data[344416 - 512] = 1;
-		/*int tileCount = 528;
-		if(allTiles.size() != 490)
-		{*/
-			//c53f5c pushes the number of minimap tiles onto the stack
-			int tileCount = allTiles.size() + 18;  //need to add the 18 tiles used for the map trimming
-			int tcLoc1 = 344413 - 512;
-			rom.writeShort(tcLoc1, tileCount);
-			//c53ffb pushes the offset of tiles for city tiles
-			int tcLoc2 = 344572 - 512;
-			//tileCount += 32;
-			rom.writeShort(tcLoc2, tileCount + 1);
-			//tileCount -= 32;
-			//System.out.println("Too many minimap tiles");
-			//return false;
-			
-		//}
+		
+		
 		ArrayList<Integer> counts2 = new ArrayList<Integer>();
 		for(int i = 0; i < cityCounts.size(); i++)
 		{
@@ -9536,9 +9778,30 @@ class GameMiniMap
 			System.out.println(counts2.get(i) + ":" + counts2.get(i + 1));
 		}
 		System.out.println(portTiles.size() + " city tiles out of 192 original");
+		
+		
+		int finalTiles = portTiles.size() + allTiles.size() + 19;
+		if(finalTiles > 854)  //768 (tile table for bgs 1 and 2) - 2 (blank and #14) + 88 (add'l tiles in offscreen data)
+		{
+			System.out.println("Minimap tile count is " + finalTiles + " which exceeded maximum 854 total tiles");
+			return false;
+		}
+		//c53ff8 pushes the number of city tiles to copy
+		int ccountLoc = 344569 - 512;
+		rom.writeShort(ccountLoc, portTiles.size());
+		//we want city tiles to be grouped together so we will put them in the center and divide
+		//other minimap tiles
+		//we will place them at 0xa020 - size
+		int tileCount = portTiles.size();
+		int loc = 770 - tileCount;
+		System.out.println("City tiles start at #" + loc);
+		leftoverStart = loc - 2;
+		//c53ffb pushes the offset of tiles for city tiles
+		int tcLoc2 = 344572 - 512;
+		rom.writeShort(tcLoc2, loc);
 		//if(tileCount > 528)
 		//{
-			int d = tileCount - 559;
+			int d = loc - 560;
 			//c5446a is lda 1e30; we need to adjust this value according to the new start location for city tiles
 			int valloc = 345707 - 512;
 			short val = rom.readShort(valloc);
@@ -9546,20 +9809,33 @@ class GameMiniMap
 			rom.writeShort(valloc, val);
 			System.out.println("City tiles were moved ahead " + d + " spaces.");
 		//}
-		tileCount += portTiles.size();
+			
+			/*int tileCount = 528;
+			if(allTiles.size() != 490)
+			{*/
+			//first make sure the minimap is loading the right tiles (offset 1, not offset 32)
+			//at c53f60
+			rom.data[344416 - 512] = 1;
+			//c53f5c pushes the number of minimap tiles onto the stack (step 1)
+			tileCount = allTiles.size() + 19;  //need to add the 18 tiles used for the map trimming +1 for the tile that auto-updates
+			int tiles1 = loc - 2;
+			int tcLoc1 = 344413 - 512;
+			rom.writeShort(tcLoc1, tiles1);  //note this is adjusted later
+			
+			//leftoverTiles = tileCount - tiles1;
+			//tileCount -= 32;
+			//System.out.println("Too many minimap tiles");
+			//return false;
+				
+			//}
+		//tileCount += portTiles.size();
 		//if(portTiles.size() != 192)
 		//{
-			//c53ff8 pushes the number of city tiles to copy
-			int ccountLoc = 344569 - 512;
-			rom.writeShort(ccountLoc, portTiles.size());
+			
 			//System.out.println("Too many city tiles");
 			//return false;
 		//}
-		if(tileCount > 770)  
-		{
-			System.out.println("Minimap tile count is " + tileCount + " which exceeded maximum 770 total tiles");
-			return false;
-		}
+		
 		return true;
 	}
 	
@@ -9766,13 +10042,16 @@ class GameMiniMap
 		boolean good = makeLayout(map, rom);
 		if(!good)
 		{
-			rom.romInvalid = true;
+			rom.romInvalid = 2;  //too many minimap tiles
 			return;
 		}
 		Compressor comp = new Compressor(rom);
 		ArrayList<Byte> bts1 = comp.gameDecompress(1894806);  
 		minimapEdge(rom, bts1, allTiles);
 		int osz = comp.dataSize;
+		//insertEmptyTiles(allTiles);
+		LayoutTiles lt = new LayoutTiles();
+		allTiles = lt.process(rom);
 		byte[] tileBytes = new byte[allTiles.size() * 32];
 		//System.out.println("Pre-compression:");
 		for(int i = 0; i < allTiles.size(); i++)
@@ -9832,8 +10111,8 @@ class GameMiniMap
 			}
 			else
 			{
-				System.out.println("Insufficient space for minimap tiles");
-				rom.romInvalid = true;
+				System.out.println("Insufficient space for minimap tiles (needed=" + bts2.size() + " avail=" + availSpace);
+				rom.romInvalid = 3;
 				return;
 			}
 		}
@@ -9912,8 +10191,8 @@ class GameMiniMap
 			}
 			else
 			{
-				System.out.println("Insufficient space for minimap tiles");
-				rom.romInvalid = true;
+				System.out.println("Insufficient space for minimap city tiles");
+				rom.romInvalid = 3;
 				return;
 			}
 		}
@@ -9925,6 +10204,16 @@ class GameMiniMap
 		dumpLayout(rom);
 	}
 	
+	/*private void insertEmptyTiles(ArrayList<Byte[]> mmTiles) //taken care of by LayoutTiles class
+	{
+		Byte[] empty = new Byte[32];
+		mmTiles.add(14, empty);
+		if(leftoverTiles > 0)
+		{
+			
+		}
+	}*/
+
 	public void dumpLayout(SNESRom rom)
 	{
 		int layoutLoc = 736814 - 512 + 66;  //cb3c2e
@@ -10008,6 +10297,7 @@ class MiniMapView extends JFrame
 		getContentPane().add(mmp);
 		setSize(800, 500);
 		//addWindowListener(this);
+		setTitle(UWNHRando.outputRomName);
 		setVisible(true);
 	}
 	
@@ -13682,7 +13972,7 @@ class BatchEditWindow extends JFrame //implements ActionListener
 	
 }
 
-class InputLinePanel extends JPanel implements ActionListener
+class InputLinePanel extends JPanel implements ActionListener, DocumentListener
 {
 	JLabel lbl;
 	JTextField txt;
@@ -13690,7 +13980,7 @@ class InputLinePanel extends JPanel implements ActionListener
 	JButton btn2;
 	RandomizerWindow rw;
 	
-	InputLinePanel(String labelText, String defaultText, String buttonText, String b2Text, RandomizerWindow rw)
+	InputLinePanel(String labelText, String defaultText, String buttonText, String b2Text, RandomizerWindow rw, boolean fxSaveFile)
 	{
 		lbl = new JLabel(labelText);
 		txt = new JTextField(defaultText, 25);
@@ -13709,6 +13999,8 @@ class InputLinePanel extends JPanel implements ActionListener
 			add(btn2);
 			btn2.addActionListener(this);
 		}
+		if(fxSaveFile)
+			txt.getDocument().addDocumentListener(this);
 	}
 	
 	public void setTextText(String s)
@@ -13722,6 +14014,24 @@ class InputLinePanel extends JPanel implements ActionListener
 			rw.execute(this, 0);
 		else
 			rw.execute(this, 1);
+	}
+
+	@Override
+	public void changedUpdate(DocumentEvent arg0) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void insertUpdate(DocumentEvent arg0) {
+		// TODO Auto-generated method stub
+		rw.updateSaveName();
+	}
+
+	@Override
+	public void removeUpdate(DocumentEvent arg0) {
+		// TODO Auto-generated method stub
+		rw.updateSaveName();
 	}
 }
 
@@ -13768,6 +14078,7 @@ class RandomizerWindow extends JFrame implements ActionListener
 			String outFile = dir + inputLines[3].txt.getText();
 			//String outFile2 = dir + "2" + inputLines[3].txt.getText();
 			String fname = inputLines[1].txt.getText();
+			String[] error = {""};
 			try
 			{
 				rom = new SNESRom(fname);
@@ -13782,7 +14093,8 @@ class RandomizerWindow extends JFrame implements ActionListener
 			try
 			{
 				//nr = new SNESRom(fname);
-				nr = rom.randomize(flags, outFile, romsToOrigROMDir, theme);
+				
+				nr = rom.randomize(flags, outFile, error, romsToOrigROMDir, theme);
 				rom = new SNESRom(fname);
 				DiffTool dt = new DiffTool(nr, rom);
 				dt.report(nr.homeDir + File.separator + "diffreport.txt");
@@ -13817,7 +14129,7 @@ class RandomizerWindow extends JFrame implements ActionListener
 				tim.stop();
 				System.err.println(ex.getMessage());
 				ex.printStackTrace();
-				failure += "This seed failed to successfully generate a ROM.  See makelog for details.\n";
+				failure += "This seed failed to successfully generate a ROM.\nFailure=" + error[0] + "\nSee makelog for details.\n";
 				JOptionPane.showMessageDialog(RandomizerWindow.this, failure, "Sorry", JOptionPane.ERROR_MESSAGE);
 				return;
 			}
@@ -14190,7 +14502,7 @@ class RandomizerWindow extends JFrame implements ActionListener
 		}
 	}
 	
-	private void updateSaveName()
+	public void updateSaveName()
 	{
 		String sv = "UWNHRando." + inputLines[0].txt.getText() + "." + inputLines[2].txt.getText() + ".smc";
 		inputLines[3].setTextText(sv);
@@ -14227,8 +14539,8 @@ class RandomizerWindow extends JFrame implements ActionListener
 		JPanel mapPanel = new JPanel(new GridLayout(2,2));
 		opts = new ArrayList<FlagPanel>();
 		
-		String[] mapT = {"Randomize Map", "Randomize Starting Ships", "View minimap of generated ROM"};
-		String[] mapF = {"M", "S", "V"};
+		String[] mapT = {"Randomize Map", "View minimap of generated ROM", "Randomize Starting Ship", "Randomize Initial Price Indeces"};
+		String[] mapF = {"M", "V", "S", "R"};
 		FlagPanel fp = new FlagPanel("General", mapT, mapF, true, false, false, this);
 		mapPanel.add(fp);
 		opts.add(fp);
@@ -14331,10 +14643,13 @@ class RandomizerWindow extends JFrame implements ActionListener
 		InputLinePanel[] rv = new InputLinePanel[5];
 		for(int i = 0; i < 5; i++)
 		{
+			boolean affectsSaveName = false;
+			if( i ==0 )
+				affectsSaveName = true;
 			if(i < 4)
-				rv[i] = new InputLinePanel(labels[i], defaultInputs[i], buttons[i], null, this);
+				rv[i] = new InputLinePanel(labels[i], defaultInputs[i], buttons[i], null, this, affectsSaveName);
 			else
-				rv[i] = new InputLinePanel(labels[i], defaultInputs[i], buttons[i], "Load Theme...", this);
+				rv[i] = new InputLinePanel(labels[i], defaultInputs[i], buttons[i], "Load Theme...", this, affectsSaveName);
 		}
 		return rv;
 	}
@@ -14562,6 +14877,7 @@ class RandomizerWindow extends JFrame implements ActionListener
 public class UWNHRando 
 {
 	private static Random rando;
+	public static String outputRomName;
 	
 	public static double rand()
 	{
@@ -14571,6 +14887,12 @@ public class UWNHRando
 	public static void setSeed(long seed)
 	{
 		rando = new Random(seed);
+		//randSeed = seed;
+	}
+	
+	public static void setOutputRomName(String in)
+	{
+		outputRomName = in; 
 	}
 	
 	private static ArrayList<Integer> getMapData(SNESRom rom)
@@ -14629,7 +14951,7 @@ public class UWNHRando
 	private static void testRomDump(SNESRom rom)
 	{
 		rom.randomizeMap(3, 12, 4, true);
-		if(rom.romInvalid == false)
+		if(rom.romInvalid == 0)
 			rom.dumpRom("UWNewRom1.smc", true);
 		else
 		{

@@ -10,6 +10,8 @@ Version 1.0 allows for map randomization.  Select a number of continents, number
 
 You can randomize your starting ship.  It's most likely to be beneficial for everyone except for Catalina (who starts with a Galleon!)  Your initial ship crew, provisions, and any cargo remain unchanged.
 
+New in ver 1.02:  You can randomize the starting price indeces for all ports.  All port good type sub-indeces are randomized and the port's general price index is derived from those sub-indeces.
+
 You can also decide to view the game's Mini-map upon generation of the ROM.  A small window showing what is essentially the game's minimap pops up when the ROM is generated.  (Alternatively, you can start the game "completely blind")
 
 Also, the randomizer creates a "makeLog.txt" and "diffreport.txt" file that is used for debugging purposes when a ROM is generated.  MakeLog logs activity of the rom generator and Diffreport lists byte-by-byte changes to the ROM from the original.
