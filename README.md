@@ -4,6 +4,12 @@ Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
 Note:  The latest version can now process headerless ROMs.
 
+Verion 1.02
+ - More tiles are available for the minimap (854 instead of 770).  See issue #3 for more information.
+ - A seed that does not generate a ROM now produces a more descriptive error message.
+ - You can now randomize initial port price sub-indeces.
+ - The minimap-view is now titled with the ROM's filename (so you can tell which minimap goes with which generated rom)  
+
 Version 1.01
  - Added a makeLog.txt for further tracking ROM generation errors
  - Increased the ROM generation timeout from 20 seconds to 2 minutes (for slower machines)
