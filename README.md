@@ -4,6 +4,9 @@ Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
 Note:  The latest version can now process headerless ROMs.
 
+Verion 1.03
+ - You can now randomize market types.  Randomizes goods available in markets and their prices.  Enforces that all goods are available somewhere, all port specialties are not goods alerady available via the market type, and that all buy prices are lower than sell prices.
+
 Verion 1.02
  - More tiles are available for the minimap (854 instead of 770).  See issue #3 for more information.
  - A seed that does not generate a ROM now produces a more descriptive error message.
