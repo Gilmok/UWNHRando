@@ -204,6 +204,8 @@ class SNESRom
 	String[][][] romOrigTheme;
 	private boolean viewMiniMap;
 	
+	byte[] availGoodCount;
+	
 	SNESRom(String fn) throws Exception
 	{
 		filename = fn;
@@ -222,7 +224,7 @@ class SNESRom
 			data[i - 512] = allData[i];
 		//setupInventoryList();
 		//mapSwap = false;
-		
+		//availGoodCount = new byte[46];
 	}
 	
 	public byte[] loadData(String fname) throws Exception
@@ -1372,7 +1374,7 @@ class SNESRom
 				randomizeMarketRates();
 				break;
 			case 'K':
-				//randomizeMarketTypes();
+				randomizeMarketTypes();
 				break;
 			}
 		}
@@ -1387,6 +1389,7 @@ class SNESRom
 			applyTheme(theme, origTheme);
 			randomizePorts(pd);
 		}
+		testPortMarkets();
 		if(romInvalid > 0)
 		{
 			switch(romInvalid)
@@ -1414,21 +1417,259 @@ class SNESRom
 		//return this;
 	}
 	
-	private void randomizeMarketTypes() //incomplete for now
+	private void testPortMarkets()
+	{
+		for(int i = 0; i < 100; i++)
+		{
+			int portLoc = 580761 - 512 + 37 * i;
+			byte spGood = data[portLoc];
+			short spPrice = readShort(portLoc - 2);
+			byte mtype = data[portLoc + 7];
+			int mtypeLoc = 725925 - 512 + 128 * mtype;
+			if(spGood >= 0)
+			{
+				for(int j = 0; j < 9; j++)
+					if(spGood == data[mtypeLoc + j + 110])
+						System.err.println("Port #" + i + " is duplicate selling good #" + spGood + " in slot " + j + " of mktype " + mtype + " loc=" + portLoc);
+			
+				short buyPrice = readShort(mtypeLoc + 2 * spGood);
+				buyPrice *= 3;
+				buyPrice >>= 2;  //buyPrice = .75 * buyPrice
+				if(spPrice < buyPrice)
+					System.err.println("Port #" + i + " is selling its specialty good for " + spPrice + " and buying it for " + buyPrice);
+			}
+		}
+		for(int i = 0; i < availGoodCount.length; i++)
+			if(availGoodCount[i] == 0)
+				System.err.println("Good #" + i + " is not available anywhere");
+	}
+	
+	private void randomizeMarketTypes() //complete
 	{
 		//there are 13 market types
-		int writeLoc = 725924 - 512;
+		int writeLoc = 725925 - 512;
+		short[] lowPrice = {2, 16, 24, 36, 64, 120, 240};
+		short[] hiPrice = {20, 30, 50, 100, 200, 400, 1200};
+		byte success = 0;
+		byte[][] specAt = {
+				{0,1,3,6},
+				{27,28,29,30,31,32,33,34,35,36,37,38,39,40,41},
+				{7,8,9,10,11,12,13,14,15,16,21},
+				{4,5,22,26},
+				{2,17,18,19,20,23,24,25},
+				{57,58,59,60,61,62,63,64,65},
+				{44,46,47,48,49,50,51,55},
+				{42,43,45,52,53,54,56},
+				{66,67,68,69,70,71},
+				{72,73,74,75,76,77,78,79,80},
+				{81,82,83,85,92},
+				{84,86,87,88,89,90,91,93},
+				{94,95,96,97,98,99}};
+		byte[] allGoods = new byte[46];
+		byte[] inShops = new byte[13];
+		int[] markets = new int[13];
 		for(int i = 0; i < 13; i++)
 		{
-			
+			int market = writeLoc;
+			markets[i] = market;
 			//buy prices
 			for(int j = 0; j < 46; j++)
 			{
-				
+				success = 0;
+				for(int f = 0; f < 6; f++)
+					if(UWNHRando.rand() > 0.5)  //bell curve of price ranges {(1,6,15,20,15,6,1) / 64}
+						success++;
+				short range = (short) (hiPrice[success] - lowPrice[success]);
+				short price = (short) ((UWNHRando.rand() * range) + lowPrice[success]);
+				writeShort(writeLoc, price);
+				writeLoc += 2;
 			}
-			//sell prices (should be greater than respective buy price by at least 30%)
+			//# of available goods
+			success = 5;
+			for(int f = 0; f < 4; f++)
+				if(UWNHRando.rand() > 0.5)  //5-9 goods available {(1,4,6,4,1) / 16}
+					success++;
+			inShops[i] = success;
+			ArrayList<Byte> sold = new ArrayList<Byte>();
+			//you cannot sell the port's specialty good at this port (or you will see the good listed twice with 2 different prices!)
+			ArrayList<Byte> spec = new ArrayList<Byte>();
+			for(int j = 0; j < specAt[i].length; j++)
+			{
+				int readAt = 580761 - 512;
+				readAt += specAt[i][j] * 37;
+				if(data[readAt] != -1)
+				{
+					spec.add(data[readAt]);
+					allGoods[data[readAt]]++;
+				}
+			}
+			
+			for(int j = 0; j < 9; j++)
+			{
+				if(j < success)
+				{
+					byte good = 0;
+					do
+					{
+						good = (byte) (UWNHRando.rand() * 46);
+					} while(sold.contains(good) || spec.contains(good));
+					sold.add(good);
+					allGoods[good]++;
+					//sell prices (should be greater than respective buy price by at least 30%)
+					short sellPrice = readShort(market + (int) (2 * good));
+					sellPrice = (short) ((UWNHRando.rand() + 1.3) * sellPrice);
+					writeShort(writeLoc, sellPrice);
+				}
+				else
+				{
+					writeShort(writeLoc, 0);
+					sold.add((byte) -1);
+				}
+				writeLoc += 2;
+			}
 			//available goods (ff = none)
-			//req'd industry to sell
+			for(int j = 0; j < 9; j++)
+			{
+				data[writeLoc] = sold.get(j);
+				writeLoc++;
+			}
+			//req'd industry to sell (/10)
+			for(int j = 0; j < 9; j++)
+			{
+				byte good = sold.get(j);
+				if(good == -1)  //none
+					data[writeLoc] = -1;
+				else if(good <= 16)  //food requires little industry (50-150)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 11) + 5);
+				else if(good > 16 && good <= 25)  //textiles require more industry (150-300)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 16) + 15);
+				else if(good > 25 && good <= 30)  //gems require a random amount of industry (80-400)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 33) + 8);
+				else if(good > 30 && good <= 35)  //ores require more industry (200-450)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 26) + 20);
+				else //all other finished goods require the most industry (300-750)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 46) + 30);
+				writeLoc++;
+			}
+		}
+		
+		//ensure availability of all goods
+		ArrayList<Byte> availMkts = new ArrayList<Byte>();
+		for(int i = 0; i < 13; i++)
+			if(inShops[i] < 9)
+				availMkts.add((byte) i);
+		for(int i = 0; i < allGoods.length; i++)
+		{
+			if(allGoods[i] == 0)
+			{
+				byte m = -1;
+				if(availMkts.size() == 0)
+				{
+					//remove the most available good
+					byte hiGood = -1;
+					byte hiAmt = 0;
+					for(int j = 0; j < allGoods.length; j++)
+					{
+						if(allGoods[j] > hiAmt)
+						{
+							hiGood = (byte) j;
+							hiAmt = allGoods[j];
+						}
+					}
+					//from a market that has it
+					for(int j = 0; j < 13; j++)
+					{
+						int readLoc = markets[j] + 2 * 46 + 2 * 9;
+						boolean found = false;
+						for(int k = 0; k < 9; k++)
+						{
+							if(data[readLoc] == hiGood)
+							{
+								m = (byte) j;
+								found = true;
+								
+								for(int l = k; k < 9; l++)
+								{
+									int pLoc = markets[j] + 2 * 46 + 2 * l;
+									data[pLoc + 1] = data[pLoc + 3];  //shift price
+									data[pLoc] = data[pLoc + 2];
+									data[readLoc] = data[readLoc + 1]; //shift good
+									data[readLoc + 9] = data[readLoc + 10];  //shift reqd economy
+									readLoc++;
+								}
+								inShops[m]--;
+								availMkts.add(m);
+							}
+							if(found)
+								break;
+							readLoc++;
+						}	
+					}
+					allGoods[hiGood]--;
+				}
+				else
+				{
+					//select an avail market and add it in
+					int r = (int) (UWNHRando.rand() * availMkts.size());
+					m = availMkts.get(r);
+				}
+				int market = markets[m];
+				byte good = (byte) i;
+				short sellPrice = readShort(market + (int) (2 * good));
+				sellPrice = (short) ((UWNHRando.rand() + 1.3) * sellPrice);
+				writeLoc = market + 2 * 46 + 2 * inShops[m];
+				writeShort(writeLoc, sellPrice);
+				
+				writeLoc = market + 2 * 46 + 2 * 9 + inShops[m];
+				data[writeLoc] = good;
+				
+				writeLoc = market + 2 * 46 + 3 * 9 + inShops[m];
+				
+				if(good == -1)  //none
+					data[writeLoc] = -1;
+				else if(good <= 16)  //food requires little industry (50-150)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 11) + 5);
+				else if(good > 16 && good <= 25)  //textiles require more industry (150-300)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 16) + 15);
+				else if(good > 25 && good <= 30)  //gems require a random amount of industry (80-400)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 33) + 8);
+				else if(good > 30 && good <= 35)  //ores require more industry (200-450)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 26) + 20);
+				else //all other finished goods require the most industry (300-750)
+					data[writeLoc] = (byte) ((UWNHRando.rand() * 46) + 30);
+				
+				inShops[m]++;
+				if(inShops[m] == 9)
+					availMkts.remove(m);
+				allGoods[i]++;
+			}
+		}
+		availGoodCount = allGoods;
+	}
+	
+	private void calcAvailGoods()
+	{
+		availGoodCount = new byte[46];
+		//add all market goods
+		int readAt = 725925 + 55 * 2 - 512;
+		for(int i = 0; i < 13; i++)
+		{
+			for(int j = 0; j < 9; j++)
+			{
+				if(data[readAt + j] >= 0)
+					availGoodCount[data[readAt + j]]++;
+			}
+			readAt += 128;
+		}
+		//add all specialty goods
+		readAt = 580761 - 512;
+		for(int i = 0; i < 100; i++)
+		{
+			if(data[readAt] >= 0)
+			{
+				availGoodCount[data[readAt]]++;
+			}
+			readAt += 37;
 		}
 	}
 
@@ -1769,36 +2010,87 @@ class SNESRom
 		
 		//port Market, Shipyard, and Specialty good
 		loc = 580761 - 512;
-		int mktLocs = 725925;  //for pricing specialty goods
+		int mktLocs = 725925 - 512;  //for pricing specialty goods
 		for(int i = 0; i < 100; i++)
 		{
-			String ss = theme[2][3][i];
+			//change market type first (so specialty good isn't duplicate)
+			int mTypeLoc = loc + 7;
+			String ss = theme[2][1][i];
 			int val = Integer.parseInt(ss.substring(0, ss.indexOf('.')));
-			if(val == 0)
-				val = (int) (UWNHRando.rand() * 46);  //specialty good
-			else if(val > 0)
-				val--;
-			int sg = val;
-			String so = origTheme[2][3][i];
-			int oldVal = Integer.parseInt(so);
-			if(oldVal > 0)
-				oldVal--;
-			boolean changed = false;
-			if(oldVal != sg)
-				changed = true;
-			data[loc] = (byte) (val & 255);
-			int sellPriceLoc = loc - 2;
-			int ecoReqLoc = loc + 1;
-			loc += 7;
-			ss = theme[2][1][i];
-			val = Integer.parseInt(ss.substring(0, ss.indexOf('.')));
 			if(val == 0)
 				val = (int) (UWNHRando.rand() * 13);  //market type
 			else 
 				val--;
 			int mtype = val;
-			data[loc] = (byte) (val & 255);
-			loc++;
+			data[mTypeLoc] = (byte) (val & 255);
+			/*System.err.println("Port #" + i + " mktType=" + mtype);// + Arrays.toString(Arrays.copyOfRange(data, mktLocs - 512 + 110, mktLocs - 512 + 119)));
+			for(int j = 0; j < 9; j++)
+			{
+				byte good = data[mktLocs + 110 + 128 * mtype + j];
+				short buy = readShort(mktLocs + 128 * mtype + 2 * good);
+				short sell = readShort(mktLocs + 128 * mtype + 92 + 2 * j);
+				System.err.println("good= " + good + " buy=" + buy + " sell=" + sell);
+			}*/
+			
+			
+			//then specialty good
+			boolean sgChanged = false;
+			int sellPriceLoc = loc - 2;
+			int ecoReqLoc = loc + 1;
+			ss = theme[2][3][i];
+			val = Integer.parseInt(ss.substring(0, ss.indexOf('.')));
+			if(val == 0 || !specialtyGoodAllowed(val - 1, mtype))
+			{
+				do
+				{
+					val = (int) (UWNHRando.rand() * 46);  //specialty good
+				} while(!specialtyGoodAllowed(val, mtype));
+			}
+			else if(val > 0)
+				val--;
+			int sg = val;
+			//System.err.print("spcGood=" + sg);
+			String so = origTheme[2][3][i];
+			int oldVal = Integer.parseInt(so);
+			if(oldVal > 0)
+				oldVal--;
+			if(oldVal != sg)
+				sgChanged = true;
+			if(availGoodCount == null)
+				calcAvailGoods();
+			if(oldVal >= 0)
+			{
+				if(availGoodCount[oldVal] > 1)  
+				{	//note: a specialty good sold in a market it's already sold at will put the count at at least 2
+					data[loc] = (byte) (sg & 255);
+					//System.err.print(" [" + sg + " put at " + loc + "]");
+					availGoodCount[sg]++;
+					availGoodCount[oldVal]--;
+				}
+				else
+				{
+					//don't change the good
+					sgChanged = false;
+					//System.err.println("spcGood=" + oldVal);
+					sg = oldVal;
+				}
+				//but see if the price needs changing
+				int priceLoc = mktLocs + (128 * mtype) + (2 * sg);
+				int buyPrice = readShort(priceLoc);
+				int sellPrice = readShort(sellPriceLoc);
+				if(sellPrice < buyPrice)  //we still need to update the price
+					sgChanged = true;
+				
+			}
+			else
+			{
+				sgChanged = false;
+				//System.err.println("[no spclty good]");
+			}
+			//System.err.println("[dl=" + loc + " val=" + data[loc] + "]");
+			//loc += 7;
+			
+			loc = mTypeLoc + 1;
 			ss = theme[2][2][i];
 			val = Integer.parseInt(ss.substring(0, ss.indexOf('.')));
 			if(val == 0)
@@ -1806,10 +2098,11 @@ class SNESRom
 			else
 				val--;
 			data[loc] = (byte) (val & 255);
+			
 			//re-price the specialty good to 75% to 225% of buy price, skewed toward the center
-			if(changed)
+			if(sgChanged)
 			{
-				int priceLoc = mktLocs + (128 * mtype) - 512 + (2 * sg);
+				int priceLoc = mktLocs + (128 * mtype) + (2 * sg);
 				int buyPrice = readShort(priceLoc);
 				double muMax = 0.25;
 				for(int k = 0; k < 5; k++)
@@ -1818,24 +2111,29 @@ class SNESRom
 				double markup = (UWNHRando.rand() * muMax) + 0.75;
 				int sellPrice = (int) (buyPrice * markup);
 				writeShort(sellPriceLoc, sellPrice);
-				//req'd economy to sell good is based on good type
+				//req'd economy to sell good is based on good type (lower req'd economy because its a port specialty)
 				byte reqE = 0;
 				if(sg <= 9)  //specialty food
-					reqE = 15;
+					reqE = 5;
 				else if(sg <= 16)  //food
-					reqE = 10;
+					reqE = 0;
 				else if(sg <= 25)  //textiles
-					reqE = 30;
+					reqE = 12;
 				else if(sg <= 35)  //jewelry
-					reqE = 50;
+					reqE = 28;
 				else if(sg <= 39)  //luxuries
-					reqE = 60;
+					reqE = 35;
 				else               //other
-					reqE = 40;
+					reqE = 25;
 				data[ecoReqLoc] = reqE;
+				//System.out.println("  sgPrice=" + sellPrice);
 			}
+			/*short buy = readShort(mktLocs + 128 * mtype + 2 * sg);
+			short sell = readShort(sellPriceLoc);
+			System.err.println(" buy=" + buy + " sell=" + sell);*/
 			loc += 29;
 		}
+		
 		//culture
 		loc = 735038 - 512;
 		for(int i = 0; i < 100; i++)
@@ -1862,6 +2160,17 @@ class SNESRom
 		
 	}
 	
+	private boolean specialtyGoodAllowed(int good, int mktType) 
+	{
+		if(good < 0)
+			return false;
+		int readLoc = 726035 + 128 * mktType - 512;
+		for(int i = 0; i < 9; i++)
+			if(data[readLoc + i] == good)
+				return false;
+		return true;
+	}
+
 	private String bytesToText(ArrayList<Byte> bytes)
 	{
 		String str = "";
@@ -14539,8 +14848,8 @@ class RandomizerWindow extends JFrame implements ActionListener
 		JPanel mapPanel = new JPanel(new GridLayout(2,2));
 		opts = new ArrayList<FlagPanel>();
 		
-		String[] mapT = {"Randomize Map", "View minimap of generated ROM", "Randomize Starting Ship", "Randomize Initial Price Indeces"};
-		String[] mapF = {"M", "V", "S", "R"};
+		String[] mapT = {"Randomize Map", "View minimap of generated ROM", "Randomize Starting Ship", "Randomize Initial Price Indeces", "Randomize goods sold at all market types"};
+		String[] mapF = {"M", "V", "S", "R", "K"};
 		FlagPanel fp = new FlagPanel("General", mapT, mapF, true, false, false, this);
 		mapPanel.add(fp);
 		opts.add(fp);

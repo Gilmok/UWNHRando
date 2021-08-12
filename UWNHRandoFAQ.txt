@@ -12,6 +12,8 @@ You can randomize your starting ship.  It's most likely to be beneficial for eve
 
 New in ver 1.02:  You can randomize the starting price indeces for all ports.  All port good type sub-indeces are randomized and the port's general price index is derived from those sub-indeces.
 
+New in ver 1.03:  You can randomize port types.  Randomizes the goods and buy/sell prices in all ports.  Note: Because this enforces that all goods are available either in a market type or as a specialty, and that no port sells a specialty that is already available in its market type, there is a small chance that specialty goods in ports may change.
+
 You can also decide to view the game's Mini-map upon generation of the ROM.  A small window showing what is essentially the game's minimap pops up when the ROM is generated.  (Alternatively, you can start the game "completely blind")
 
 Also, the randomizer creates a "makeLog.txt" and "diffreport.txt" file that is used for debugging purposes when a ROM is generated.  MakeLog logs activity of the rom generator and Diffreport lists byte-by-byte changes to the ROM from the original.
