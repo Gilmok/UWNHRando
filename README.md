@@ -4,6 +4,12 @@ Requires a 64-bit JVM ver. 1.6.0 or later and a copy of the original ROM
 
 Note:  The latest version can now process headerless ROMs.
 
+Version 1.1
+ - A redesign of how the map gets stored makes for a higher likelihood of a generated ROM (more ROMs should generate)
+ - Port placement is now faster and all ports are guaranteed accessible
+ - You can now turn off ship build times (so that new ships you build are completed instantly)
+ - You can now turn on 24/7 access to port services and shops, so no need to wait for daytime or use inns 
+
 Verion 1.03
  - You can now randomize market types.  Randomizes goods available in markets and their prices.  Enforces that all goods are available somewhere, all port specialties are not goods already available via the market type, and that all buy prices are lower than sell prices.
 
