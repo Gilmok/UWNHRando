@@ -7,6 +7,7 @@ Note:  The latest version can now process headerless ROMs.
 Version 1.1
  - A redesign of how the map gets stored makes for a higher likelihood of a generated ROM (more ROMs should generate)
  - Port placement is now faster and all ports are guaranteed accessible
+ - You can now see the initial "known world", and now have an option to turn off events in that area (so you don't start off with storms)
  - You can now turn off ship build times (so that new ships you build are completed instantly)
  - You can now turn on 24/7 access to port services and shops, so no need to wait for daytime or use inns 
 
