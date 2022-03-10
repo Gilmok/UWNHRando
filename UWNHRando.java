@@ -17,6 +17,7 @@ import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowListener;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.DataInputStream;
@@ -33,6 +34,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Random;
 
+import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
@@ -206,6 +208,8 @@ class SNESRom
 	
 	byte[] availGoodCount;
 	
+	int[] mapLocs;
+	
 	SNESRom(String fn) throws Exception
 	{
 		filename = fn;
@@ -222,6 +226,9 @@ class SNESRom
 			header[i] = allData[i];
 		for(int i = 512; i < allData.length; i++)
 			data[i - 512] = allData[i];
+		mapLocs = new int[4];
+		mapLocs[0] = MAP_LOC;
+		noKWStorms = false;
 		//setupInventoryList();
 		//mapSwap = false;
 		//availGoodCount = new byte[46];
@@ -267,6 +274,109 @@ class SNESRom
 		{
 			data[loc + i] = (byte) (val & 255);
 			val >>= 8;
+		}
+	}
+	
+	public ArrayList<Integer> getEventRects()
+	{
+		int loc1 = 997632 - 512;
+		//f3ac2 is event table 2 (Oct 1 - Apr 1)
+		int loc2 = 998082 - 512;
+		//f3c84 is event table 3
+		int loc3 = 998532 - 512;
+		
+		ArrayList<Integer> rv = new ArrayList<Integer>();
+		for(int i = 0; i < 450; i++)
+		{
+			int x1 = (i % 30) * 72;
+			//int x2 = x1 + 71;
+			int y1 = (i / 30) * 72;
+			//int y2 = y1 + 71;
+			//String locText = "y=" + y1 + " to " + y2 + ", x=" + x1 + " to " + x2;
+			byte spring = (byte) (data[loc1 + i] & 64); 
+			byte fall = (byte) (data[loc2  + i] & 64);
+			byte omni = (byte) (data[loc3 + i] & -64);  //val & c0
+			
+			if(omni == 64) //40
+			{
+				//System.out.println("Storm in region " + locText);
+				rv.add(1);
+				rv.add(x1);
+				rv.add(72);
+				rv.add(y1);
+				rv.add(72);
+			}
+			else if(omni == -128)  //80
+			{
+				//System.out.println("Wind stops in region " + locText);
+				rv.add(2);
+				rv.add(x1);
+				rv.add(72);
+				rv.add(y1);
+				rv.add(72);
+			}
+			else if(omni == -64)
+			{
+				//System.out.println("Fog in region " + locText);
+				rv.add(3);
+				rv.add(x1);
+				rv.add(72);
+				rv.add(y1);
+				rv.add(72);
+			}
+			/*if(spring > 0)
+			{
+				rv.add(4);
+				rv.add(x1);
+				rv.add(72);
+				rv.add(y1);
+				rv.add(72);
+			}
+			if(fall > 0)
+			{
+				rv.add(5);
+				rv.add(x1);
+				rv.add(72);
+				rv.add(y1);
+				rv.add(72);
+			}*/
+		}
+		return rv;
+	}
+	
+	public void stormReport()
+	{
+		System.out.println("=== Event report ===");
+		//f3900 is event table 1 (Apr 1 - Oct 1) 
+		int loc1 = 997632 - 512;
+		//f3ac2 is event table 2 (Oct 1 - Apr 1)
+		int loc2 = 998082 - 512;
+		//f3c84 is event table 3
+		int loc3 = 998532 - 512;
+		
+		for(int i = 0; i < 450; i++)
+		{
+			int x1 = (i % 30) * 72;
+			int x2 = x1 + 71;
+			int y1 = (i / 30) * 72;
+			int y2 = y1 + 71;
+			String locText = "y=" + y1 + " to " + y2 + ", x=" + x1 + " to " + x2;
+			byte spring = data[loc1 + i]; 
+			byte fall = data[loc2  + i];
+			byte omni = (byte) (data[loc3 + i] & -64);  //val & c0
+			
+			if(omni == 64) //40
+			{
+				System.out.println("Storm in region " + locText);
+			}
+			else if(omni == -128)  //80
+			{
+				System.out.println("Wind stops in region " + locText);
+			}
+			else if(omni == -64)
+			{
+				System.out.println("Fog in region " + locText);
+			}
 		}
 	}
 	
@@ -347,11 +457,11 @@ class SNESRom
 		String rv = "";
 		if(hexString.length() == 1)
 			hexString = "0" + hexString;
-		for(int i = hexString.length() - 2; i >= 0; i -= 2)
+		for(int i = hexString.length() - 2; i >= 0; i -= 2)  //grab the last two chars of hex value
 		{
 			rv += hexString.charAt(i);
 			rv += hexString.charAt(i + 1);
-			rv += " ";
+			rv += " ";  //insert space
 			if(twoBytes && rv.length() == 6)
 				break;
 		}
@@ -365,15 +475,40 @@ class SNESRom
 	}
 	
 	static final int ROM_BASE = 12582912;  //0xc00000
+	//data overflow at 1eca00-1f01ff (14,335 bytes free for data overflow)
+	static final int DATA_OVERFLOW = 2017792 - 512;
+	static final int DATA_MAX = 14435;
+	int dataUsed = 0;
+	//code overflow at 1fe800-1fffff (6656 bytes free for code overflow)
+	static final int CODE_OVERFLOW = 2091008 - 512;
+	static final int CODE_MAX = 6656;
+	int codeUsed = 0;
+	public boolean noKWStorms;
+	
+	public void allocateData(int amt)
+	{
+		dataUsed += amt;
+		if(dataUsed > DATA_MAX)
+			romInvalid = 10;
+	}
+	
+	public void allocateCode(int amt)
+	{
+		codeUsed += amt;
+		if(codeUsed > CODE_MAX)
+			romInvalid = 11;
+	}
 	
 	public void editTitleScreen()
 	{
-		int loc1 = 2023936 - 512;
+		int loc1 = CODE_OVERFLOW;   //1fe800 or dfe800
 		String hex = Integer.toHexString(loc1 + ROM_BASE);
-		String randLoc = hexAddr(hex, false);
+		String randLoc = hexAddr(hex, true);
 		String rando = "Randomizer";
 		byte[] randB = textToBytes(rando);
 		writeBytes(loc1, randB);
+		
+		int used = randB.length + 2;
 
 		int data1 = loc1 + randB.length + 1;
 		data[data1] = 0;
@@ -385,12 +520,16 @@ class SNESRom
 		String data1Loc = hexAddr(hex, true);
 		writeBytes(data1, db1);
 		
+		used += db1.length;
+		
 		int data2 = data1 + db1.length;
 		String dd2 = "0c 00 01 00 00 4e 7f 00";
 		byte[] db2 = strToBytes(dd2);
 		hex = Integer.toHexString(data2 + ROM_BASE + db2.length - 1);
 		String data2Loc = hexAddr(hex, true);
 		writeBytes(data2, db2);
+		
+		used += db2.length;
 		
 		int data3 = data2 + db2.length;
 		String dd3 = "00 ff 68 00 f0 00 68 00 28 00 40 02 1d 03 11 00 " +
@@ -400,16 +539,22 @@ class SNESRom
 		String data3Loc = hexAddr(hex, false);
 		writeBytes(data3, db3);
 		
+		used += db3.length;
+		
 		//insert function to handle VRAM writes
 		int fx1 = data3 + db3.length;  //we may use this function elsewhere
 		hex = Integer.toHexString(fx1 + ROM_BASE);
 		String fx1Loc = hexAddr(hex, false);
+		int bank = (((data1 + ROM_BASE) & 16711680) >> 16);  //rom base & 0xFF0000 >> 16
+		String dbank = Integer.toHexString(bank);
 		String sfx1 = "a3 04 8f 33 0b 00 a3 06 aa 8b 3b a8 " + 
-				"a9 07 00 44 00 de bb 9a " + 
+				"a9 07 00 44 00 " + dbank + " bb 9a " + 
 				"a9 00 00 48 48 f4 03 00 f4 06 00 22 00 80 c0 " +
 				"3b 18 69 10 00 1b ab 6b";
 		byte[] bts1 = strToBytes(sfx1);
 		writeBytes(fx1, bts1);
+		
+		used += bts1.length;
 		
 		//insert function to write on title screen
 		int fx2 = fx1 + bts1.length;
@@ -419,8 +564,8 @@ class SNESRom
 				"a2 00 60 a0 00 4d 54 7f 7f ab " + 
 				"a2 1a 00 bf " + data3Loc + " 9f de ea 7e ca ca 10 f4 " +
 				"a9 02 00 8f 31 a2 7e " +
-				"3a 8f 23 a2 7e 48 f4 00 00 f4 e6 08 f4 de 56 f4 " +
-				"00 e0 22 17 3d c2 18 3b 69 0a 00 1b " +
+				"3a 8f 23 a2 7e 48 f4 00 00 f4 e6 08 f4 " + dbank + " 56 f4 " +
+				randLoc + " 22 17 3d c2 18 3b 69 0a 00 1b " +
 				"a9 4b 26 a2 16 00 " +
 				"9f 00 4e 7f 3a ca ca 10 f7 f4 " + data2Loc + " f4 4c 7e 22 " + fx1Loc +
 				" 68 68 a9 00 7c 8f 33 0b 00 f4 00 22 " +
@@ -428,8 +573,14 @@ class SNESRom
 		byte[] bts2 = strToBytes(sfx2);
 		writeBytes(fx2, bts2);
 		
+		used += bts2.length;
+		allocateCode(used);
+		
+		//int last = fx2 + bts2.length;
+		//int uu = used + CODE_OVERFLOW;
+		
 		//call the function when "new game" is placed
-		int callLoc = 897022 - 512;
+		int callLoc = 897022 - 512;  //dadfe
 		String fcall = "22 " + fx2Loc + " ea ea ea ea ea ea ea ea";
 		byte[] bfc = strToBytes(fcall);
 		writeBytes(callLoc, bfc);
@@ -479,42 +630,55 @@ class SNESRom
 	{
 		romInvalid = 0;
 		//randomize world map
-		GameMap map = new GameMap();
-		map.makeMap(nContinents, nIslands, iceCapThick);
-		System.out.println("Generating map with " + nContinents + " continents, " + nIslands + " islands, and polarThick of " + iceCapThick);
-		Compressor cc = new Compressor(this);
-		ArrayList<ArrayList<Byte>> bts = cc.compressMap(map);  //this creates the compressed map blocks
-		
-		int sz = cc.getMapSize(bts);
-		System.out.println("Map size is " + sz + " bytes");
-		if(sz > 77313)
+		int sz = 0;
+		GameMap map; //= new GameMap();
+		Compressor cc; //= new Compressor(this);
+		ArrayList<ArrayList<Byte>> bts;
+		do
 		{
-			romInvalid = 1;  //compressed map size too large
-			return null;
-		}
+			map = new GameMap();
+			cc = new Compressor(this);
+			map.makeMap(nContinents, nIslands, iceCapThick);
+			System.out.println("Generating map with " + nContinents + " continents, " + nIslands + " islands, and polarThick of " + iceCapThick);
+			bts = cc.compressMap(map);  //this creates the compressed map blocks
+			sz = cc.getMapSize(bts);
+			System.out.println("Map size is " + sz + " bytes");
+			
+		} while(sz > 91600);  //77300+14300 byte overflow
 		
-		byte[] cm = cc.collateMap(bts);
+		int mapBaseLoc = 1163902 - 512;
+		int[] availSpace = {77313, DATA_MAX - dataUsed};
+		//int[] availLocs = {0, DATA_OVERFLOW + dataUsed - mapBaseLoc};
+		cc.collateMap(bts, availSpace, map);
 		int[][] deltas = cc.getDeltas();
+		//int[] overflows = cc.overflowDeltas;
+		//int[] overflowLocs = {0, DATA_OVERFLOW + dataUsed - mapBaseLoc};
 		int[][] deltaI = cc.getDeltaIndeces();
 		map.blocks = cc.collectBlocks(bts, deltaI);
 		map.deltas = deltas;
 		
 		
-		int mapBaseLoc = 1163902 - 512; //11c72e; the 512 header is shaved off during decompression
+		//int mapBaseLoc = 1163902 - 512; //11c72e; the 512 header is shaved off during decompression
 		//rom.outputData(mapBaseLoc, 50);
-		int deltaLoc = 249786 - 512;  //3cfba
 		
-		for(int i = 0; i < cm.length; i++)
-			data[mapBaseLoc + i] = cm[i];
+		//do not do this yet
+		/*for(int i = 0; i < cm[0].length; i++)
+			data[mapBaseLoc + i] = cm[0][i];
 		
-		for(int i = 0; i < deltas.length; i++)
+		for(int i = 0; i < cm[1].length; i++)
+			data[DATA_OVERFLOW + dataUsed + i] = cm[1][i];
+		this.allocateData(cm[1].length);*/
+		
+		/*int deltaLoc = 249786 - 512;  //3cfba
+		
+		for(int i = 0; i < deltas.length; i++)  //no change to this as deltas have already been changed
 		{
 			for(int j = 0; j < deltas[0].length; j++)
 			{
 				write3Bytes(deltaLoc, deltas[i][j]);
 				deltaLoc += 3;
 			}
-		}
+		}*/
 		
 		//if(randomizePorts)
 		//{
@@ -793,7 +957,7 @@ class SNESRom
 			vill += 5;
 		}
 		
-		System.out.println("Map dump complete - now output minimap");
+		System.out.println("Now output minimap");
 		GameMiniMap gmp = new GameMiniMap(this);
 		gmp.createMiniMap(map, viewMiniMap);
 		/*if(viewMiniMap)
@@ -802,7 +966,8 @@ class SNESRom
 		}*/
 		gmp.testCompressedBytes(this, map);
 		map.editKnownWorld(this);
-		
+		System.out.println("And finally dump map");
+		map.dumpMap(this, deltaI);
 		
 		return map;
 		//??? - cf3600  don't worry about this for now
@@ -1283,10 +1448,12 @@ class SNESRom
 			homeDir = newDir;
 		}
 		PrintStream console = System.out;
+		PrintStream log = null;
 		try 
 		{
-			PrintStream log = new PrintStream(new File(homeDir + "makeLog.txt"));
+			log = new PrintStream(new File(homeDir + "makeLog.txt"));
 			System.setOut(log);
+			System.out.println("== Making rom " + fn + " ==");
 		} 
 		catch (FileNotFoundException e) 
 		{
@@ -1298,8 +1465,8 @@ class SNESRom
 		String[][][] origTheme = getOrigThemeData();
 		//applyTheme(theme);
 		LinkedHashMap<String, Integer> flagMap = new LinkedHashMap<String, Integer>();
-		String[] okFlags =  {"M", "C", "I", "O", "S", "V", "R", "K"};
-		boolean[] usesVal = {false, true, true, true, false, false, false, false};
+		String[] okFlags =  {"M", "C", "I", "O", "S", "V", "R", "K", "s", "b", "t"};
+		boolean[] usesVal = {false, true, true, true, false, false, false, false, false, false, false};
 		for(int i = 0; i < okFlags.length; i++)
 			flagMap.put(okFlags[i], -1);
 		while(flags.length() > 0)
@@ -1376,6 +1543,15 @@ class SNESRom
 			case 'K':
 				randomizeMarketTypes();
 				break;
+			case 's':
+				this.noKWStorms = true;
+				break;
+			case 'b':
+				elimShipBuildCooldowns();
+				break;
+			case 't':
+				elimShopClosures();
+				break;
 			}
 		}
 		if(randomizeMap)
@@ -1396,7 +1572,10 @@ class SNESRom
 			{
 			case 1:  failure[0] = "Compressed map was too large";  break;
 			case 2:  failure[0] = "Too many minimap tiles generated"; break;
-			case 3:  failure[0] = "Coudn't fit compressed minimap tiles";  break;
+			case 3:  failure[0] = "Couldn't fit compressed minimap tiles";  break;
+			case 4:  failure[0] = "Couldn't fit minimap city entries"; break;
+			case 10: failure[0] = "Data overflow was exhausted"; break;
+			case 11: failure[0] = "Code overflow was exhausted"; break;
 			}
 			return null;
 		}
@@ -1404,7 +1583,10 @@ class SNESRom
 		try
 		{
 			SNESRom rv = new SNESRom(outFile);
+			log.flush();
+			log.close();
 			System.setOut(console);
+			
 			//rv.gameMap = gameMap;
 			return rv;
 		}
@@ -1417,6 +1599,40 @@ class SNESRom
 		//return this;
 	}
 	
+	public int addrToLoc(String addr)  //converts a game address to a file location
+	{
+		int loc = Integer.parseInt(addr, 16);
+		loc -= ROM_BASE;
+		return loc;
+	}
+	
+	public void elimShopClosures()
+	{
+		String[] locs = {"c398af", "c398c5", "c39812", "c39828", "c398e6", 
+				         "c3984c", "c39862", "c39878", "c3988e", "c39907"};
+		//instead of loading time of day, load 5pm
+		String repl = "a9 22 00 ea";
+		byte[] bb = strToBytes(repl);
+		for(int i = 0; i < locs.length; i++)
+		{
+			int loc = addrToLoc(locs[i]);
+			String check = "af 5d a0 7e";
+			byte[] cc = strToBytes(check); 
+			for(int j = 0; j < cc.length; j++)
+				if(data[loc + j] != cc[j])
+					System.err.println("Elim shop closures - incorrect data found");
+			writeBytes(loc, bb);
+		}
+	}
+	
+	public void elimShipBuildCooldowns() 
+	{
+		String fx = "64 00 ea ea";  //simply store 0 to the number of days a ship will take to build
+		int fxLoc = 534168 - 512;   //@82698
+		byte[] fxb = strToBytes(fx);
+		writeBytes(fxLoc, fxb);
+	}
+
 	private void testPortMarkets()
 	{
 		for(int i = 0; i < 100; i++)
@@ -1554,6 +1770,7 @@ class SNESRom
 		}
 		
 		//ensure availability of all goods
+		int selMarket = -1;
 		ArrayList<Byte> availMkts = new ArrayList<Byte>();
 		for(int i = 0; i < 13; i++)
 			if(inShops[i] < 9)
@@ -1599,6 +1816,7 @@ class SNESRom
 								}
 								inShops[m]--;
 								availMkts.add(m);
+								selMarket = availMkts.size() - 1;
 							}
 							if(found)
 								break;
@@ -1612,6 +1830,7 @@ class SNESRom
 					//select an avail market and add it in
 					int r = (int) (UWNHRando.rand() * availMkts.size());
 					m = availMkts.get(r);
+					selMarket = r;
 				}
 				int market = markets[m];
 				byte good = (byte) i;
@@ -1640,7 +1859,7 @@ class SNESRom
 				
 				inShops[m]++;
 				if(inShops[m] == 9)
-					availMkts.remove(m);
+					availMkts.remove(selMarket);
 				allGoods[i]++;
 			}
 		}
@@ -1766,14 +1985,15 @@ class SNESRom
 		}
 		int loc = 980597 - 512;
 		int discLoc = loc;
-		int endLoc = 2024224 - 512;
+		int endLoc = DATA_OVERFLOW + dataUsed;
 		int discFree = -1;
-		if(cBlock.size() > 1187) //we will need to move it
+		if(cBlock.size() > 1187) //we will need to move it to the data overflow
 		{
 			loc = endLoc;
 			discFree = 1187;
 			writeBytes(loc, cBlock);
 			endLoc += cBlock.size();
+			allocateData(cBlock.size());
 		}
 		else
 			writeBytes(loc, cBlock);
@@ -1813,6 +2033,7 @@ class SNESRom
 				commodFree = 532;
 				writeBytes(loc, cBlock);
 				endLoc += cBlock.size();
+				allocateData(cBlock.size());
 			}
 		}
 		else
@@ -1944,6 +2165,7 @@ class SNESRom
 				loc = endLoc;
 				writeBytes(loc, cBlock);
 				endLoc += cBlock.size();
+				allocateData(cBlock.size());
 			}
 		}
 		else
@@ -1956,7 +2178,7 @@ class SNESRom
 			ptrLoc += 3;
 		}
 		
-		//Area names
+		//Area names (Northern Europe, Southern Europe, Iberian Peninsula, etc.)
 		starts.clear();
 		cBlock.clear();
 		for(int i = 0; i < 13; i++)
@@ -1983,6 +2205,7 @@ class SNESRom
 				loc = endLoc;
 				writeBytes(loc, cBlock);
 				endLoc += cBlock.size();
+				allocateData(cBlock.size());
 			}
 		}
 		else
@@ -2394,7 +2617,7 @@ class Compressor
 	Compressor(SNESRom sr)
 	{
 		rom = sr;
-		
+		deltaIndeces = null;
 	}
 	
 	
@@ -4569,6 +4792,7 @@ class Compressor
 		System.out.println(totalSize + " bytes used out of 77313 bytes available");
 		//for(int i = 0; i < chunks.size(); i++)
 			//System.out.println(Arrays.toString(chunks.get(i)));
+		deltaIndeces = getDeltaIndeces();
 		return out;
 	}
 
@@ -4636,8 +4860,11 @@ class Compressor
 		return rv;
 	}
 	
+	int[][] deltaIndeces;
 	public int[][] getDeltaIndeces()
 	{
+		if(deltaIndeces != null)
+			return deltaIndeces;
 		int[][] rv = new int[45][];
 		for(int i = 0; i < 45; i++)
 			rv[i] = new int[90];
@@ -4656,18 +4883,83 @@ class Compressor
 				rv[y][x] = ii;
 			}
 		}
+		deltaIndeces = rv;
 		return rv;
 	}
-
-	public byte[] collateMap(ArrayList<ArrayList<Byte>> bts) 
+	
+	//int[] overflowDeltas;
+	public void collateMap(ArrayList<ArrayList<Byte>> bts, int[] freeAreas, GameMap map) 
 	{
-		ArrayList<Byte> mp = new ArrayList<Byte>();
-		for(int i = 1; i < bts.size(); i += 2)
-			mp.addAll(bts.get(i));
-		byte[] out = new byte[mp.size()];
-		for(int i = 0; i < out.length; i++)
-			out[i] = mp.get(i);
-		return out;
+		int blk = 1;
+		//byte[][] rv = new byte[freeAreas.length][]; 
+		//overflowDeltas = new int[freeAreas.length];
+		//ArrayList<Integer> needsUpdate = new ArrayList<Integer>();
+		//int startD = Integer.MAX_VALUE;
+		map.chunks = new GameMap.CompressionChunk[bts.size() / 2];
+		for(int loc = 0; loc < freeAreas.length; loc++)
+		{
+			int used = 0;
+			//overflowDeltas[loc] = (blk - 1) / 2;
+			ArrayList<Byte> mp = new ArrayList<Byte>();
+			for(int i = blk; i < bts.size(); i += 2)
+			{
+				used += bts.get(i).size();
+				if(used > freeAreas[loc])
+					break;
+				mp.addAll(bts.get(i));
+				byte[] chunk = new byte[bts.get(i).size()];
+				for(int j = 0; j < chunk.length; j++)
+					chunk[j] = bts.get(i).get(j);
+				map.chunks[i / 2] = map.new CompressionChunk(chunk, i / 2, 0, loc);
+				blk = i;
+			}
+			//collate the list of grabbed blocks into the byte list stored at the given available area
+			/*byte[] out = new byte[mp.size()];
+			for(int i = 0; i < out.length; i++)
+				out[i] = mp.get(i);
+			rv[loc] = out;*/
+			if(blk == bts.size())
+				break;
+			//at this point we gather indeces that need updating
+			/*int end = (blk - 1) / 2;
+			if(loc == 0) //collect the initial list
+			{
+				for(int yy = 0; yy < deltaIndeces.length; yy++)
+				{
+					for(int xx = 0; xx < deltaIndeces[yy].length; xx++)
+					{
+						int ii = deltaIndeces[yy][xx];
+						if(ii > end)
+						{
+							needsUpdate.add(yy * deltaIndeces[yy].length + xx);
+							if(ii < startD)
+								startD = ii;
+						}
+					}
+				}
+			}
+			else
+			{
+				for(int i = 0; i < needsUpdate.size(); i++)
+				{
+					int ii = needsUpdate.get(i);
+					if(ii > end)
+						continue;
+					//compDeltas[ii] -= startD;
+					//compDeltas[ii] += availLocs[loc];
+					needsUpdate.remove(i);
+					i--;
+				}
+				startD = Integer.MAX_VALUE;
+				for(int i = 0; i < needsUpdate.size(); i++)
+				{
+					int ii = needsUpdate.get(i);
+					if(ii < startD)
+						startD = ii;
+				}
+			}*/
+		}
+		//return rv;
 	}
 
 	public byte[][][] collectBlocks(ArrayList<ArrayList<Byte>> bts, int[][] deltaIndeces) 
@@ -9133,6 +9425,10 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 	private int my;
 	public BlockInfoWindow blockInfo;
 	
+	//private BufferedImage bimg;
+	
+	ArrayList<Integer> eventData;
+	
 	GameMapPanel(GameMap mp)
 	{
 		map = mp;
@@ -9146,9 +9442,70 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 		right = left + 749;
 		top = 0;
 		bottom = top + 399;
+		eventData = null;
 		setPreferredSize(new Dimension(1500,800));
 		addMouseListener(this);
 		addMouseMotionListener(this);
+	}
+	
+	GameMapPanel(GameMap mp, ArrayList<Integer> events)
+	{
+		this(mp);
+		eventData = events;
+	}
+	
+	public BufferedImage getMapImage()
+	{
+		int szx = map.fullMap[0].length * 2;
+		int szy = map.fullMap.length * 2;
+		BufferedImage bimg = new BufferedImage(szx, szy, BufferedImage.TYPE_INT_ARGB);
+		Graphics g = bimg.createGraphics();
+		System.out.println("Creating image size " + szx + "x" + szy);
+		for(int i = 0; i < map.fullMap.length; i++)
+		{
+			for(int j = 0; j < map.fullMap[0].length; j++)
+			{
+				if(map.fullMap[i][j] >= 0 && map.fullMap[i][j] < 5)
+					g.setColor(colors[map.fullMap[i][j]]);
+				else if(map.fullMap[i][j] >= -68 && map.fullMap[i][j] <= -65)
+					g.setColor(Color.WHITE);
+				else if(map.fullMap[i][j] >= -64 && map.fullMap[i][j] <= -61)
+					g.setColor(Color.YELLOW);
+				else if(map.fullMap[i][j] >= -60 && map.fullMap[i][j] <= -57)
+					g.setColor(Color.CYAN);
+				else
+					g.setColor(Color.MAGENTA);
+				g.fillRect(j * 2, i * 2, 2, 2);
+			}
+		}
+		if(eventData != null)
+		{
+			Color[] evColors = new Color[5];
+			evColors[0] = new Color(255, 0, 0, 96);
+			evColors[1] = new Color(0, 255, 0, 96);
+			evColors[2] = new Color(0, 255, 255, 96);
+			evColors[3] = new Color(192, 192, 192, 96);
+			evColors[4] = new Color(64, 64, 64, 96);
+			for(int i = 1; i < eventData.size(); i += 5)
+			{
+				//if(eventData.get(i) * 2 < (right * 2) && eventData.get(i) * 2 + 144 > (left * 2))  //x1 * 2 < right || x1 * 2 + 144 > left
+				//{
+					int xx = eventData.get(i) * 2 - (left * 2);
+					//int ww = 144;
+					//if(eventData.get(i + 2) < (bottom * 2) && eventData.get(i + 2) * 2 + 144 > (top * 2))
+					//{
+						int yy = eventData.get(i + 2) * 2 - (top * 2);
+						int c = eventData.get(i - 1);
+						g.setColor(evColors[c - 1]);
+						g.fillRect(xx, yy, 144, 144);
+						//System.out.println(i + ":ev" + c + " at " + xx + "," + yy + " lft=" + left + " top=" + top);
+					//}
+				//}
+			}
+		}
+		
+		return bimg;
+		
 	}
 	
 	public void paintComponent(Graphics g)
@@ -9170,6 +9527,48 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 				else
 					g.setColor(Color.MAGENTA);
 				g.fillRect((j - left) * 2, (i - top) * 2, 2, 2);
+			}
+		}
+		if(eventData != null)
+		{
+			Color[] evColors = new Color[5];
+			evColors[0] = new Color(255, 0, 0, 96);
+			evColors[1] = new Color(0, 255, 0, 96);
+			evColors[2] = new Color(0, 255, 255, 96);
+			evColors[3] = new Color(192, 192, 192, 96);
+			evColors[4] = new Color(64, 64, 64, 96);
+			for(int i = 1; i < eventData.size(); i += 5)
+			{
+				if(eventData.get(i) * 2 < (right * 2) && eventData.get(i) * 2 + 144 > (left * 2))  //x1 * 2 < right || x1 * 2 + 144 > left
+				{
+					int xx = eventData.get(i) * 2 - (left * 2);
+					//int ww = 144;
+					if(eventData.get(i + 2) < (bottom * 2) && eventData.get(i + 2) * 2 + 144 > (top * 2))
+					{
+						int yy = eventData.get(i + 2) * 2 - (top * 2);
+						int c = eventData.get(i - 1);
+						g.setColor(evColors[c - 1]);
+						g.fillRect(xx, yy, 144, 144);
+						//System.out.println(i + ":ev" + c + " at " + xx + "," + yy + " lft=" + left + " top=" + top);
+					}
+				}
+			}
+		}
+		if(map.okForPOI != null)
+		{
+			g.setColor(Color.LIGHT_GRAY);
+			for(int xx = 0; xx < map.okForPOI.length; xx++)
+			{
+				for(int yy = 0; yy < map.okForPOI[xx].length; yy++)
+				{
+					IndexedList lst = map.okForPOI[xx][yy];
+					for(int i = 0; i < lst.size(); i++)
+					{
+						GameMap.IndexedPoint ip = (GameMap.IndexedPoint) lst.get(i);
+						Point p = ip.pt;
+						g.fillRect((p.x - left) * 2, (p.y - top) * 2, 2, 2);
+					}
+				}
 			}
 		}
 		String msdx = "X:" + left + "-" + right;
@@ -9303,6 +9702,21 @@ class GameMapWindow extends JFrame implements ActionListener
 		setVisible(true);
 		tim = new Timer(100, this);
 		tim.start();
+	}
+	
+	GameMapWindow(GameMap map, ArrayList<Integer> events)
+	{
+		gmp = new GameMapPanel(map, events);
+		getContentPane().add(gmp);
+		setSize(1520, 820);
+		setVisible(true);
+		tim = new Timer(100, this);
+		tim.start();
+	}
+	
+	public BufferedImage getMapImage()
+	{
+		return gmp.getMapImage();
 	}
 
 	@Override
@@ -9802,9 +10216,10 @@ class GameMiniMap
 			if(mmTiles2.size() > 0)
 			{
 				System.err.println(mmTiles2.size() + " a740 tiles are present");
-				int codeLoc = 2024158 - 512;
-				int callLoc = 344431 - 512;
-				String call = "22 de e0 de";
+				int codeLoc = SNESRom.CODE_OVERFLOW + rom.codeUsed;
+				int callLoc = 344431 - 512;   //c53f6f
+				System.out.println("Putting additional minimap tile processing at " + codeLoc + ", mmTiles2 size=" + mmTiles2.size() + ", mmTiles3 size=" + mmTiles3.size());
+				String call = "22 " + rom.hexAddr(Integer.toHexString(codeLoc + SNESRom.ROM_BASE), false);
 				byte[] bts = rom.strToBytes(call);
 				rom.writeBytes(callLoc, bts);
 				int v1 = 32768 + (mmTiles1.size() * 32);
@@ -9814,6 +10229,8 @@ class GameMiniMap
 				String copy1 = "f4 02 00 f4 7f 00 f4 " + sv1 + " f4 " + sv2 + " f4 3a 03 f4 0b 00 22 00 80 c0 3b 18 69 0c 00 1b";
 				bts = rom.strToBytes(copy1);
 				rom.writeBytes(codeLoc, bts);
+				//rom.allocateCode(bts.length);
+				//int alloc = 0;
 				int len1 = bts.length;
 				if(mmTiles3.size() > 0)
 				{
@@ -9826,7 +10243,9 @@ class GameMiniMap
 							       "af 6a d5 cc 60";
 					bts = rom.strToBytes(copy2);
 					rom.writeBytes(codeLoc + 32, bts);
-					String copy3 = "20 fe e0 6b";
+					rom.allocateCode(32 + bts.length);
+					String hexF = rom.hexAddr(Integer.toHexString(codeLoc + 32), true);
+					String copy3 = "20 " + hexF + " 6b";   //the function put at copy2 (overwrites part of copy1)
 					bts = rom.strToBytes(copy3);
 					rom.writeBytes(codeLoc + len1, bts);
 				}
@@ -9835,6 +10254,7 @@ class GameMiniMap
 					String copy3 = "af 6a d5 cc 6b";
 					bts = rom.strToBytes(copy3);
 					rom.writeBytes(codeLoc + len1, bts);
+					rom.allocateCode(len1 + bts.length);
 				}
 			}
 			
@@ -10356,6 +10776,7 @@ class GameMiniMap
 		}
 		Compressor comp = new Compressor(rom);
 		ArrayList<Byte> bts1 = comp.gameDecompress(1894806);  
+		rom.mapLocs[2] = 1894806 - 512;
 		minimapEdge(rom, bts1, allTiles);
 		int osz = comp.dataSize;
 		//insertEmptyTiles(allTiles);
@@ -10387,36 +10808,35 @@ class GameMiniMap
 		ArrayList<Byte> bts2 = comp.compressBytes(tileBytes);
 		System.out.println(bts2.size() + " bytes used out of " + osz + " bytes available");
 		
-		int ommAvail = -1;
+		int ommUsed = osz;
 		
 		if(bts2.size() > osz)
 		{
-			System.out.println("Minimap tiles are TOO LARGE and may need to be moved");
-			if(availSpace > bts2.size())
+			System.out.println("Minimap tiles are TOO LARGE and need to be moved");
+			ommUsed = 0;
+			if(availSpace + osz > bts2.size())  //put it all on the map
 			{
+				int lastMapBlock = map.chunks.length - 1;
+				while(map.chunks[lastMapBlock].zone != 0)
+					lastMapBlock--;
+				while(availSpace < bts2.size())
+				{
+					//move a block of the map to the newly freed area
+					int cc = map.chunks[lastMapBlock].chunk.length;
+					map.chunks[lastMapBlock].move(0, 2);
+					availSpace += cc;
+					endLoc -= cc;
+					lastMapBlock--;
+					ommUsed += cc;
+				}
 				minimapTilesLoc = endLoc;
 				availSpace -= bts2.size();
-				
-				int delta = endLoc - SNESRom.MAP_LOC;
-				int loadLoc = 344354 - 512;  //loading from end of map; change initial load loc to map start
-				byte[] newLoc = rom.strToBytes("6e cc c3");
-				rom.writeBytes(loadLoc, newLoc);
-				loadLoc += 6;
-				newLoc[0] += 2;
-				rom.writeBytes(loadLoc, newLoc);
-				
-				int deltaLoc = 652051 - 512;  //c9f113
-				rom.write3Bytes(deltaLoc, delta);
-				rom.writeBytes(minimapTilesLoc, bts2);
-				System.out.println("Successfully moved minimap tiles to " + endLoc);
 				endLoc += bts2.size();
-				ommAvail = osz;
-				/*else
-				{
-					System.out.println("failed to record minimap delta");
-					rom.romInvalid = true;
-					return;
-				}*/
+			}
+			else if(bts2.size() < (rom.DATA_MAX - rom.dataUsed))  //put it all in overflow
+			{
+				minimapTilesLoc = rom.DATA_OVERFLOW + rom.dataUsed;
+				rom.allocateData(bts2.size());
 			}
 			else
 			{
@@ -10424,29 +10844,31 @@ class GameMiniMap
 				rom.romInvalid = 3;
 				return;
 			}
+			int delta = minimapTilesLoc - SNESRom.MAP_LOC;
+			int loadLoc = 344354 - 512;  //loading from end of map; change initial load loc to map start
+			byte[] newLoc = rom.strToBytes("6e cc c3");
+			rom.writeBytes(loadLoc, newLoc);
+			loadLoc += 6;
+			newLoc[0] += 2;
+			rom.writeBytes(loadLoc, newLoc);
+			
+			int deltaLoc = 652051 - 512;  //c9f113
+			rom.write3Bytes(deltaLoc, delta);
+			rom.writeBytes(minimapTilesLoc, bts2);
+			System.out.println("Successfully moved minimap tiles to " + minimapTilesLoc);
+			//ommAvail = osz;
+			
 		}
 		else
 		{
 			minimapTilesLoc = 1894806 - 512;
 			rom.writeBytes(minimapTilesLoc, bts2);
-			
-			//testing
-			/*byte[] decTiles = new byte[bts2.size()];
-			for(int i = 0; i < bts2.size(); i++)
-				decTiles[i] = bts2.get(i);
-			
-			ArrayList<Byte> decTileBytes = comp.gameDecompress(1894806);
-			if(decTileBytes.size() != tileBytes.length)
-				System.out.println("Error in compression sizes; exp=" + tileBytes.length + " act=" + decTileBytes.size());
-			for(int i = 0; i < decTileBytes.size(); i++)
-			{
-				if(decTileBytes.get(i).byteValue() != tileBytes[i])
-					System.out.println("Error in tile compression at item " + i + " exp=" + tileBytes[i] + " act=" + decTileBytes.get(i).byteValue());
-			}*/
-			//end testing
 		}
 		
+		
+		//city tiles
 		bts1 = comp.gameDecompress(1902586);
+		rom.mapLocs[3] = 1902586 - 512;
 		osz = comp.dataSize;
 		byte[] cityTileBytes = new byte[portTiles.size() * 32];
 		for(int i = 0; i < portTiles.size(); i++)
@@ -10459,11 +10881,57 @@ class GameMiniMap
 		System.out.println(bts3.size() + " bytes used out of " + osz + " bytes available");
 		if(bts3.size() > osz)
 		{
-			System.out.println("City tiles are TOO LARGE and may need to be moved");
-			if(bts3.size() < availSpace)  //put at end of map
+			System.out.println("City tiles are TOO LARGE and need to be moved");
+			if(bts3.size() < (osz - ommUsed))  //put in old minimap tile spot
 			{
-				mmPortTilesLoc = endLoc;
-				int delta = endLoc - SNESRom.MAP_LOC;
+				mmPortTilesLoc = 1894806 - 512 + ommUsed;
+				System.out.println("Moving city tiles to old minimap tiles location");
+				/*int loadLoc = 344510 - 512;  //change initial load loc to 
+				String hex = Integer.toHexString(mmPortTilesLoc + SNESRom.ROM_BASE);
+				String addr = rom.hexAddr(hex, false);
+				byte[] newLoc = rom.strToBytes(addr);
+				rom.writeBytes(loadLoc, newLoc);*/
+				int dd = 155902 + ommUsed;  //orig delta + used distance
+				String ds = rom.hexAddr(Integer.toHexString(dd), false);  //put the delta to be the delta for the minimap tile's original location
+				byte[] delta = rom.strToBytes(ds);
+				int deltaLoc = 652054 - 512;  //c9f116
+				rom.writeBytes(deltaLoc, delta);
+				
+				rom.writeBytes(mmPortTilesLoc, bts3);
+				System.out.println("Successfully moved port tiles to " + mmPortTilesLoc);
+			}
+			else 
+			{
+				if(bts3.size() < availSpace + osz)  //put at end of map
+				{
+					int lastMapBlock = map.chunks.length - 1;
+					while(map.chunks[lastMapBlock].zone != 0)
+						lastMapBlock--;
+					while(availSpace < bts3.size())
+					{
+						//move a block of the map to the newly freed area
+						int cc = map.chunks[lastMapBlock].chunk.length;
+						map.chunks[lastMapBlock].move(0, 3);
+						availSpace += cc;
+						endLoc -= cc;
+						lastMapBlock--;
+					}
+					System.out.println("Putting city tiles at end of map");
+					mmPortTilesLoc = endLoc;
+				}
+				else if(bts3.size() < (rom.DATA_MAX - rom.dataUsed))  //put it all in overflow
+				{
+					mmPortTilesLoc = rom.DATA_OVERFLOW + rom.dataUsed;
+					System.out.println("Putting city tiles in overflow");
+					rom.allocateData(bts3.size());
+				}
+				else
+				{
+					System.out.println("Insufficient space for minimap city tiles");
+					rom.romInvalid = 3;
+					return;
+				}
+				int delta = mmPortTilesLoc - SNESRom.MAP_LOC;
 				int loadLoc = 344510 - 512;  //loading from end of map; change initial load loc to map start
 				byte[] newLoc = rom.strToBytes("6e cc c3");
 				rom.writeBytes(loadLoc, newLoc);
@@ -10474,36 +10942,8 @@ class GameMiniMap
 				int deltaLoc = 652054 - 512;  //c9f116
 				rom.write3Bytes(deltaLoc, delta);
 				rom.writeBytes(mmPortTilesLoc, bts3);
-				System.out.println("Successfully moved city tiles to " + endLoc);
-				/*}
-				else
-				{
-					System.out.println("failed to record minimap delta");
-					rom.romInvalid = true;
-					return;
-				}*/
-			}
-			else if(bts3.size() < ommAvail)  //put in old minimap spot
-			{
-				mmPortTilesLoc = 1894806 - 512;
-				/*int loadLoc = 344510 - 512;  //change initial load loc to 
-				String hex = Integer.toHexString(mmPortTilesLoc + SNESRom.ROM_BASE);
-				String addr = rom.hexAddr(hex, false);
-				byte[] newLoc = rom.strToBytes(addr);
-				rom.writeBytes(loadLoc, newLoc);*/
-				
-				byte[] delta = rom.strToBytes("fe 60 02");  //put the delta to be the delta for the minimap tile's original location
-				int deltaLoc = 652054 - 512;  //c9f116
-				rom.writeBytes(deltaLoc, delta);
-				
-				rom.writeBytes(mmPortTilesLoc, bts3);
-			}
-			else
-			{
-				System.out.println("Insufficient space for minimap city tiles");
-				rom.romInvalid = 3;
-				return;
-			}
+				System.out.println("Successfully moved city tiles to " + mmPortTilesLoc);
+			} 
 		}
 		else
 		{
@@ -10551,8 +10991,14 @@ class GameMiniMap
 			layoutLoc += 2;
 		}
 		int portLayout = 740979 - 512;  //cb4c73;
-		rom.writeBytes(portLayout, tileEntries1);
-		int portLayout2 = 741239 - 512;  //cb4d77
+		rom.writeBytes(portLayout, tileEntries1);  //size is always 260
+		int portLayout2 = 741239 - 512;  //cb4d77  - need to stop clobbering data if data goes beyond 741626 (size > 387)
+		if(tileEntries2.size() > 387)  //need to move it somewhere else
+		{
+			System.out.println("City minimap entries exceeded maximum of 387");
+			rom.romInvalid = 4;
+			return;
+		}
 		rom.writeBytes(portLayout2, tileEntries2);
 	}
 	
@@ -10623,6 +11069,8 @@ class GameMap
 	
 	ArrayList<PortData> allPortData;
 	
+	IndexedList[][] okForPOI;
+	
 	byte[][][] blocks;
 	int[][] deltas;
 	
@@ -10644,21 +11092,49 @@ class GameMap
 				eventMap[i][j] = new byte[30];
 		}
 		compressedSize = -1;
-		knownWorld = new Rectangle();
+		knownWorld = null;
+		chunks = null;
 	}
 	
 	
 
 	public void editKnownWorld(SNESRom rom) 
 	{
-		int[] locs = {478181, 478176, 478196, 478201};
-		int[] vals = {knownWorld.y + knownWorld.height, knownWorld.y, knownWorld.x + knownWorld.width, knownWorld.x};
+		int[] locs = {478171, 478176, 478196, 478201};
+		if(knownWorld.x < 0)
+			knownWorld.x = 0;
+		if(knownWorld.y < 0)
+			knownWorld.y = 0;
+		System.out.println("KW:" + knownWorld.toString());
+		int[] vals = {knownWorld.y, knownWorld.y + knownWorld.height, knownWorld.x, knownWorld.x + knownWorld.width};
+		int[] vv = new int[4];
 		for(int i = 0; i < 4; i++)
 		{
 			locs[i] -= 512;
-			vals[i] /= 6;
-			rom.data[locs[i]] = 0;//(byte) vals[i];
+			if(i < 2)
+				vv[i] = (int) Math.floor(vals[i] / 24);
+			else
+				vv[i] = (int) Math.ceil(vals[i] / 24);
+			rom.data[locs[i]] = (byte) vv[i];
 			
+		}
+		if(rom.noKWStorms)  //then eliminate events in the Known World
+		{
+			int ev = 998532 - 512;  //f3c84
+			int y1 = (int) Math.floor(vals[0] / 72);
+			int y2 = (int) Math.ceil(vals[1] / 72);
+			int x1 = (int) Math.floor(vals[2] / 72);
+			int x2 = (int) Math.ceil(vals[3] / 72);
+			ev += ((y1 * 30) + x1);
+			for(int yy = y1; yy <= y2; yy++)
+			{
+				for(int xx = x1; xx <= x2; xx++)
+				{
+					rom.data[ev] &= 63;  //turns off events here
+					ev++;
+				}
+				ev += 30;
+			}
 		}
 	}
 
@@ -11218,6 +11694,48 @@ class GameMap
 		return rv;
 	}
 	
+	private ArrayList<Point> getSurr8(Point src, int xMax, int yMax, boolean wrapX)
+	{
+		ArrayList<Point> rv = new ArrayList<Point>(8);
+		if(src.y > 0)
+		{
+			rv.add(new Point(src.x, src.y - 1));
+			if(src.x < xMax)
+				rv.add(new Point(src.x + 1, src.y - 1));
+			else if(wrapX)
+				rv.add(new Point(0, src.y - 1));
+		}
+		if(src.y < yMax)
+		{
+			rv.add(new Point(src.x, src.y + 1));
+			if(src.x < xMax)
+				rv.add(new Point(src.x + 1, src.y + 1));
+			else if(wrapX)
+				rv.add(new Point(0, src.y + 1));
+		}
+		if(src.x > 0)
+		{
+			rv.add(new Point(src.x - 1, src.y));
+			rv.add(new Point(src.x - 1, src.y + 1));
+		}
+		else if(wrapX)
+		{
+			rv.add(new Point(xMax, src.y));
+			rv.add(new Point(xMax, src.y + 1));
+		}
+		if(src.x < xMax)
+		{
+			rv.add(new Point(src.x + 1, src.y));
+			rv.add(new Point(src.x + 1, src.y + 1));
+		}
+		else if(wrapX)
+		{
+			rv.add(new Point(0, src.y));
+			rv.add(new Point(0, src.y + 1));
+		}
+		return rv;
+	}
+	
 	private ArrayList<Point> growPoint(Point src, byte[][] arr, byte val, double cGrowX, double cGrowY)
 	{
 		//boolean rv = false;
@@ -11607,7 +12125,7 @@ class GameMap
 	
 	private ArrayList<Point> placePorts(int nPorts, int regionX, int regionY, ArrayList<Point> allPois)
 	{
-		int xx = regionX * 80;
+		/*int xx = regionX * 80;
 		int yy = regionY * 80 + 20;
 		ArrayList<Point> possPorts = new ArrayList<Point>();
 		for(int y = 0; y < 80; y += 2)
@@ -11653,63 +12171,96 @@ class GameMap
 					}
 				}
 			}
-		}
-		if(possPorts.size() == 0)
+		}*/
+		if(okForPOI[regionX][regionY].size() == 0)
 		{
 			return null;
 		}
 		
 		ArrayList<Point>  currPois = new ArrayList<Point>();
 		boolean placedPOI = true;
+		//Point fpt = null;
 		for(int i = 0; i < nPorts; i++)
 		{
 			int fail = 0;
 			while(fail < 1000)
 			{
-				if(possPorts.size() == 0)
+				if(okForPOI[regionX][regionY].size() == 0)
 				{
 					return null;
 				}
-				int pp = (int) (UWNHRando.rand() * possPorts.size());
-				Point pt = possPorts.get(pp);
+				int pp = (int) (UWNHRando.rand() * okForPOI[regionX][regionY].size());
+				IndexedPoint ipt = (GameMap.IndexedPoint) okForPOI[regionX][regionY].get(pp);
 				//boolean placed = true;
-				if(currPois.contains(pt))
+				Point fpt = new Point(ipt.pt.x & 4094, ipt.pt.y & 4094);
+				boolean okToPlace = true;
+				for(int y = 0; y < 1; y++)
 				{
-					//placed = false;
-					fail++;
-					continue;
-				}
-				if(allPois.contains(pt))
-				{
-					//placed = false;
-					fail++;
-					continue;
-				}
-				Point[] prad = new Point[25];  //exclusion radius
-				int ll = 0;
-				for(int y = -4; y <= 4; y += 2)
-				{
-					for(int x = -4; x <= 4; x += 2)
+					for(int x = 0; x < 1; x++)
 					{
-						if(x == 0 && y == 0)
-							continue;
-						int px = pt.x + x;
+						if(fullMap[fpt.y + y][fpt.x + x] == 0)
+						{
+							okForPOI[regionX][regionY].remove(pp);
+							okToPlace = false;
+						}
+					}	
+				}
+				if(!okToPlace)
+				{
+					fail++;
+					continue;
+				}
+				/*if(currPois.contains(fpt))  //these checks might not be necessary
+				{
+					//placed = false;
+					fail++;
+					continue;
+				}
+				if(allPois.contains(fpt))
+				{
+					//placed = false;
+					fail++;
+					continue;
+				}*/
+				//int rx = regionX;
+				//int ry = regionY;
+				//Point[] prad = new Point[50];  //exclusion radius
+				//int ll = 0;
+				int removed = 0;
+				for(int y = -4; y <= 4; y++)
+				{
+					for(int x = -4; x <= 4; x++)
+					{
+						//if(x == 0 && y == 0)
+							//continue;
+						
+						int px = fpt.x + x;
 						if(px < 0)
 							px += 2160;
 						if(px >= 2160)
 							px -= 2160;
-						int py = pt.y + y;  //the 20 pixel buffer prevents y wrapping
-						prad[ll] = new Point(px, py);
-						ll++;
+						int regx = px / 80;
+						int py = fpt.y + y;  //the 20 pixel buffer prevents y wrapping
+						if(py < 20 || py >= 1060)
+							continue;
+						int regy = (py - 20) / 80;
+						Point ep = new Point(px, py);
+						//prad[ll] = ep;
+						IndexedPoint ip = new IndexedPoint(ep);
+						
+						if(okForPOI[regx][regy].removeItemWithIndex(ip.getIndex()) != null)
+							removed++;
+						//ll++;
 					}
 				}
-				currPois.add(0, pt);
-				possPorts.remove(pt);
-				for(int l = 0; l < prad.length; l++)
+				currPois.add(fpt);
+				//System.err.println("Placing POI at " + fpt.toString() + " removed " + removed + " possible POI locations");
+				//possPorts.remove(fpt);
+				/*for(int l = 0; l < prad.length; l++)
 				{
 					currPois.add(prad[l]);
 					possPorts.remove(prad[l]);
-				}
+				}*/
 				fail = 0;
 				break;
 			}
@@ -11887,7 +12438,7 @@ class GameMap
 				regy++;
 			}
 			if(kwrestrict)
-				regx = (int) (UWNHRando.rand() * 19);
+				regx = (int) (UWNHRando.rand() * 17) + 2;
 			else
 				regx = (int) (UWNHRando.rand() * 27);
 		}
@@ -11957,7 +12508,7 @@ class GameMap
 		int[] popProbs = {1,2,3,5,8,13,8,13,8,5,3,2,1};
 		// place the 6 "kingdoms" into 6 possibly overlapping population centers,
 		// 6+1+6; 1/2/3/5/8/13/8/13/8/5/3/2/1  sum = 72
-		//focusing on temperate zones  [6 capitols + 4-6 ports for each of them] [6+24-36][42 max]
+		//focusing on temperate zones  [6 capitals + 4-6 ports for each of them] [6+24-36][42 max]
 		System.out.println("Adding POIs");
 		for(int k = 0; k < 6; k++)
 		{
@@ -11975,19 +12526,18 @@ class GameMap
 				if(herePorts > (nPorts - portsPlaced))
 					herePorts = nPorts - portsPlaced;
 				ArrayList<Point> newPois = placePorts(herePorts, regx, regy, allPois);
-				//newPois contains the new port points as well as all points that
-				//must be excluded due to a port's exclusion radius
+				//newPois contains the new port points 
 				if(newPois == null)
 				{
 					//k--;
 					kfail++;
 					continue;
 				}
-				
+				allPois.addAll(newPois);  //only interaction with allPois
 				kfail = 0;
-				for(int i = 0; i < herePorts; i++)  //actual ports are added first
+				for(int i = 0; i < herePorts; i++)  
 				{
-					allPois.add(0, newPois.get(i));
+					//allPois.add(0, newPois.get(i));
 					boolean cap = false;
 					int[] sup = {0,0,0,0,0,0};
 					int possCult = 3;  //0 and 1
@@ -12013,6 +12563,19 @@ class GameMap
 						ia += 64;
 					pd.setIAData(ia);
 					pdata.add(pd);
+					
+					if(knownWorld == null)  //initialize the known world
+					{
+						 // this should happen ONCE
+						knownWorld = new Rectangle();
+						Point pp = newPois.get(i);
+						knownWorld.x = pp.x - 12;
+						knownWorld.y = pp.y - 12;
+						knownWorld.width = 24;
+						knownWorld.height = 24;
+						System.out.println("Initializing known world to " + knownWorld.toString());
+					}
+					System.out.println("Placing KW port at " + newPois.get(i));
 					if(!knownWorld.contains(newPois.get(i)))
 					{
 						Point pp = newPois.get(i);
@@ -12022,13 +12585,15 @@ class GameMap
 						int y2 = pp.y + 12;
 						knownWorld.width = Math.max(knownWorld.width, x2 - knownWorld.x);
 						knownWorld.height = Math.max(knownWorld.height, y2 - knownWorld.y);
+						System.out.println("Adjusting known world to " + knownWorld.toString());
+						
 					}
 				}
-				for(int i = herePorts; i < newPois.size(); i++)
+				/*for(int i = herePorts; i < newPois.size(); i++)
 				{
 					//add all other points at the end (again, exclusion radius)
 					allPois.add(newPois.get(i));
-				}
+				}*/
 				portsPlaced += herePorts;
 				placedPorts += herePorts;
 				population[regx][regy] += 2 * herePorts;
@@ -12074,10 +12639,10 @@ class GameMap
 				}
 				portsPlaced += herePorts;
 				kfail = 0;
-				
+				allPois.addAll(newPois);
 				for(int i = 0; i < herePorts; i++)
 				{
-					allPois.add(0, newPois.get(i));
+					//allPois.add(0, newPois.get(i));
 					boolean cap = false;
 					int[] sup = {0,0,0,0,0,0};
 					int possCult = 0;
@@ -12112,8 +12677,8 @@ class GameMap
 					//pd.setIAData((byte) 6);
 					pdata.add(pd);
 				}
-				for(int i = herePorts; i < newPois.size(); i++)
-					allPois.add(newPois.get(i));
+				//for(int i = herePorts; i < newPois.size(); i++)
+					//allPois.add(newPois.get(i));
 				placedPorts += herePorts;
 				population[regx][regy] += 2 * herePorts;
 				kx[k] = regx;
@@ -12146,9 +12711,10 @@ class GameMap
 			ArrayList<Point> newPois = placePorts(nPorts, regx, regy, allPois);
 			if(newPois == null)
 				continue;
+			allPois.addAll(newPois);
 			for(int i = 0; i < nPorts; i++)
 			{
-				allPois.add(0, newPois.get(i));
+				//allPois.add(0, newPois.get(i));
 				boolean cap = false;
 				int[] sup = {0,0,0,0,0,0};
 				int possCult = 44;  //2,3,5
@@ -12157,8 +12723,8 @@ class GameMap
 				pd.setOpenings(this);
 				pdata.add(pd);
 			}
-			for(int i = nPorts; i < newPois.size(); i++)
-				allPois.add(newPois.get(i));
+			//for(int i = nPorts; i < newPois.size(); i++)
+				//allPois.add(newPois.get(i));
 			placedPorts += nPorts;
 			population[regx][regy] += 2 * nPorts;
 		}
@@ -12184,12 +12750,13 @@ class GameMap
 			if(newPois == null)
 			{
 				i--;
+				zeroPop.remove(r);
 				continue;
 			}
 			for(int j = 0; j < nPorts; j++)
 				allPois.add(0, newPois.get(j));
-			for(int j = nPorts; j < newPois.size(); j++)
-				allPois.add(newPois.get(j));
+			//for(int j = nPorts; j < newPois.size(); j++)
+				//allPois.add(newPois.get(j));
 			PortData pd = new PortData(-1, false, null);
 			pd.setSupplyOnly(true);
 			pd.setXY(newPois.get(0).x, newPois.get(0).y);
@@ -12207,7 +12774,7 @@ class GameMap
 			int regx = (int) (UWNHRando.rand() * 27);
 			int regy = (int) (UWNHRando.rand() * 13);
 			int r = (int) (UWNHRando.rand() * 10);  //roll a d10; be greater than the population of region
-			if(r <= population[regx][regy])
+			if(r <= population[regx][regy])  //re-roll location
 			{
 				i--;
 				continue;
@@ -12220,8 +12787,8 @@ class GameMap
 			}
 			for(int j = 0; j < 1; j++)
 				allPois.add(0, newPois.get(j));
-			for(int j = 1; j < newPois.size(); j++)
-				allPois.add(newPois.get(j));
+			//for(int j = 1; j < newPois.size(); j++)
+				//allPois.add(newPois.get(j));
 			PortData pd = new PortData(-1, false, null);
 			pd.setDiscovery(true);
 			pd.setXY(newPois.get(0).x, newPois.get(0).y);
@@ -12332,6 +12899,11 @@ class GameMap
 		simplifyInvisible();
 		mountainAndForestFix();
 		raiseLand();
+		
+		boolean[][] oceans = selectOceans(polarThickness);
+		okForPOI = getPOIPoints(oceans);
+		//GameMapWindow gmw = new GameMapWindow(this);
+		
 		addPOIs();
 		backup();
 	}
@@ -12576,9 +13148,10 @@ class GameMap
 			Point p = pts[i];
 			if(fullMap[p.y][p.x] == 1)
 				continue;
-			if(flood.contains(p))
+			//IndexedPoint ip = new IndexedPoint(p);
+			if(flood.contains(p))  
 				continue;
-			flood.addAll(floodSelect(p, (byte) 1, false, selected));
+			flood.addAll(floodSelect(p, (byte) 1, false, selected));  //n log n
 		}
 		
 		/*for(int i = 0; i < flood.size(); i++)
@@ -12597,16 +13170,228 @@ class GameMap
 		}
 	}
 	
-	private ArrayList<Point> floodSelect(Point st, byte val, boolean matchVal, boolean[][] selected)
+	private IndexedList[][] getPOIPoints(boolean[][] oceans)
 	{
+		IndexedList[][] rv = new IndexedList[27][];
+		int my = oceans.length - 1;
+		int mx = oceans[0].length - 1;
+		for(int i = 0; i < rv.length; i++)
+		{
+			rv[i] = new IndexedList[13];
+			for(int j = 0; j < 13; j++)
+				rv[i][j] = new IndexedList();
+		}
+		int lx = 0;
+		int ly = 0;
+		int px = 0;
+		int py = 0;
+		for(int yy = 0; yy < oceans.length; yy++)
+		{
+			for(int xx = 0; xx < oceans[yy].length; xx++)
+			{
+				if(oceans[yy][xx])
+				{
+					Point p = new Point(xx, yy);
+					ArrayList<Point> pts = getSurr4(p, mx, my, true);
+					for(int i = 0; i < pts.size(); i++)
+					{
+						Point pt = pts.get(i);
+						px = pt.x;
+						py = pt.y;
+						if(fullMap[py][px] != 0 && py >= 20 && py < 1060)
+						{
+							lx = px / 80;
+							ly = (py - 20) / 80;
+							rv[lx][ly].add(new IndexedPoint(pt));
+							
+						}
+					}
+				}
+			}
+		}
+		return rv;
+	}
+	
+	private boolean[][] selectOceans(int iceCap)
+	{
+		//count up water tiles
+		int water = 0;
+		for(int yy = 0; yy < fullMap.length; yy++)
+			for(int xx = 0; xx < fullMap[yy].length; xx++)
+				if(fullMap[yy][xx] == 0)
+					water++;
+		
+		int[] xs = {3, 1081, 3, 1081};
+		int[] ys = {iceCap, 1080 - iceCap, 1080 - iceCap, iceCap};  //4 corners testing
+		int largest = 0;
+		int[] bounds = {0,0,0,0};
+		boolean[][] out = null;
+		for(int i = 0; i < xs.length; i++)
+		{
+			boolean[][] rv = new boolean[1080][2160];
+			ArrayList<Point> ocean = new ArrayList<Point>();
+			//test 2 spots
+			int x = xs[i];
+			int y = ys[i];
+			do
+			{
+				if(i == 0 || i == 3)
+					y += 2;
+				else
+					y -= 2;
+				Point st = new Point(x, y);
+				ocean = floodSelect2(st, (byte) 0, true, rv);
+			}while(ocean == null);
+			if(ocean.size() - 2 > water / 2)  //ocean size > half the world's water
+			{
+				return rv;
+			}
+			else if(ocean.size() == largest)  //== largest and same bounds then accept it
+			{
+				Point min = ocean.get(largest - 2);
+				Point max = ocean.get(largest - 1);
+				int[] bb = {min.x, min.y, max.x, max.y};
+				if(Arrays.equals(bb, bounds))
+					return rv;
+			}
+			if(ocean.size() > largest)
+			{
+				largest = ocean.size();
+				out = rv;
+				Point min = ocean.get(largest - 2);
+				Point max = ocean.get(largest - 1);
+				int[] bb = {min.x, min.y, max.x, max.y};
+				bounds = bb;
+			}
+			
+		}
+		return out;
+		
+	}
+	
+	//2 point flood select expansion; both values must match going in a given direction to expand in that direction
+	private ArrayList<Point> floodSelect2(Point st, byte val, boolean matchVal, boolean[][] selected)
+	{
+		if(matchVal)
+		{
+			if(fullMap[st.y][st.x] != val)
+				return null;
+			if(fullMap[st.y + 1][st.x] != val)
+				return null;
+			if(fullMap[st.y][st.x + 1] != val)
+				return null;
+			if(fullMap[st.y + 1][st.x + 1] != val)
+				return null;
+		}
 		ArrayList<Point> rv = new ArrayList<Point>();
 		rv.add(st);
+		rv.add(new Point(st.x, st.y + 1));
+		rv.add(new Point(st.x + 1, st.y));
+		rv.add(new Point(st.x + 1, st.y + 1));
 		int expanded = 0;
 		int xm = fullMap[0].length - 1;
 		int ym = fullMap.length - 1;
+		int minX = 9999;
+		int maxX = 0;
+		int minY = 9999;
+		int maxY = 0;
 		while(expanded < rv.size())
 		{
 			Point p = rv.get(expanded);
+			ArrayList<Point> ls = getSurr8(p, xm, ym, true);
+			for(int i = 0; i < ls.size(); i++)
+			{
+				Point pp = ls.get(i);
+				/*byte good = 0;
+				byte wall = 0;*/
+				if(matchVal)
+				{
+					if(fullMap[pp.y][pp.x] != val || selected[pp.y][pp.x])
+					{
+						ls.remove(i);
+						if((i & 1) == 0)
+							ls.remove(i);  //remove next
+						else
+						{
+							ls.remove(i - 1);  //remove prev
+							i--;
+						}
+						i--;
+						//good = 0;
+						//System.out.print(ls.size());
+					}
+					/*else
+						good++;
+					if(good == 2)
+					{
+						for(int k = 0; k < wall; k++)
+						selected[pp.y][pp.x] = true;
+						if(pp.x < minX)
+							minX = pp.x;
+						if(pp.x > maxX)
+							maxX = pp.x;
+						if(pp.y < minY)
+							minY = pp.y;
+						if(pp.y > minY)
+							minY = pp.y;
+					}*/
+				}
+				else
+				{
+					if(fullMap[pp.y][pp.x] == val || selected[pp.y][pp.x])
+					{
+						ls.remove(i);
+						if((i & 1) == 0)
+							ls.remove(i);
+						else
+						{
+							ls.remove(i - 1);
+							i--;
+						}
+						i--;
+					}
+					/*else
+					{
+						
+					}*/
+				}
+			}
+			for(int i = 0; i < ls.size(); i++)
+			{
+				Point pp = ls.get(i);
+				selected[pp.y][pp.x] = true;
+				if(pp.x < minX)
+					minX = pp.x;
+				if(pp.x > maxX)
+					maxX = pp.x;
+				if(pp.y < minY)
+					minY = pp.y;
+				if(pp.y > minY)
+					minY = pp.y;
+			}
+			//System.out.println();
+			rv.addAll(ls);
+			expanded++;
+		}
+		Point p1 = new Point(minX, minY);
+		rv.add(p1);
+		Point p2 = new Point(maxX, maxY);
+		rv.add(p2);
+		return rv;
+	}
+	
+	private ArrayList<Point> floodSelect(Point st, byte val, boolean matchVal, boolean[][] selected)
+	{
+		//IndexedList rv = new IndexedList();
+		ArrayList<Point> qq = new ArrayList<Point>();
+		qq.add(st);
+		selected[st.y][st.x] = true;
+		int expanded = 0;
+		int xm = fullMap[0].length - 1;
+		int ym = fullMap.length - 1;
+		while(expanded < qq.size())   //n
+		{
+			Point p = qq.get(expanded);
 			ArrayList<Point> ls = getSurr4(p, xm, ym, true);
 			for(int i = 0; i < ls.size(); i++)
 			{
@@ -12632,10 +13417,16 @@ class GameMap
 						selected[pp.y][pp.x] = true;
 				}
 			}
-			rv.addAll(ls);
+			qq.addAll(ls);
 			expanded++;
 		}
-		return rv;
+		/*for(int i = 0; i < qq.size(); i++)  //n*lgn
+		{
+			Point pp = qq.get(i);
+			IndexedPoint ip = new IndexedPoint(pp);
+			rv.add(ip);
+		}*/
+		return qq;
 	}
 	
 	private int[] distToLand(int x, int y, byte tp)   //gets distance to nearest land that is not equal to tp
@@ -12762,6 +13553,55 @@ class GameMap
 		//}
 	}
 	
+	class CompressionChunk
+	{
+		byte[] chunk;
+		int index;
+		int loc;
+		int zone;
+		
+		CompressionChunk(byte[] bits, int index, int loc, int zone)
+		{
+			chunk = bits;
+			this.index = index;
+			this.loc = loc;
+			this.zone = zone;   //0= main map loc, 1= data overflow, 2=minimap tile region, 3=town tile region
+		}
+		
+		public void move(int newLoc, int newZone)
+		{
+			loc = newLoc;
+			zone = newZone;
+		}
+	}
+	
+	CompressionChunk[] chunks;
+	
+	public void saveToRom(SNESRom rom, int[][] deltaIndeces)  //use this function to save the map
+	{
+		int deltaLoc = 249786 - 512;  //3cfba
+		for(int yy = 0; yy < deltaIndeces.length; yy++)
+		{
+			for(int xx = 0; xx < deltaIndeces[0].length; xx++)
+			{
+				int idx = deltaIndeces[yy][xx];
+				int delta = chunks[idx].loc;
+				rom.write3Bytes(deltaLoc, delta);
+				deltaLoc += 3;
+			}
+		}
+		for(int i = 0; i < chunks.length; i++)
+		{
+			//then dump the bytes
+			int writeLoc = chunks[i].loc + rom.MAP_LOC;
+			for(int j = 0; j < chunks[i].chunk.length; j++)
+			{
+				rom.data[writeLoc] = chunks[i].chunk[j];
+				writeLoc++;
+			}
+		}
+	}
+	
 	public int smoothWater(int maxLen)
 	{
 		int elim = 0;
@@ -12809,6 +13649,21 @@ class GameMap
 		public long getIndex() 
 		{
 			return size;
+		}
+	}
+	
+	class IndexedPoint implements Indexed
+	{
+		Point pt;
+		
+		IndexedPoint(Point p)
+		{
+			pt = p;
+		}
+		
+		public long getIndex()
+		{
+			return pt.y * 5000 + pt.x;
 		}
 	}
 
@@ -12889,6 +13744,63 @@ class GameMap
 			
 		}
 		return tile;
+	}
+
+	public void dumpMap(SNESRom rom, int[][] deltaIndeces)
+	{
+		rom.mapLocs[1] = SNESRom.DATA_OVERFLOW + rom.dataUsed;
+		int[] outLocs = Arrays.copyOf(rom.mapLocs, rom.mapLocs.length);
+		int[] zoneCounts = new int[4];
+		int deltaLoc = 249786 - 512;
+		for(int i = 0; i < chunks.length; i++)
+		{
+			CompressionChunk cc = chunks[i];
+			int z = chunks[i].zone;
+			rom.writeBytes(outLocs[z], cc.chunk);
+			/*int loc = outLocs[z] - SNESRom.MAP_LOC;
+			rom.write3Bytes(deltaLoc, loc);*/
+			cc.loc = outLocs[z];
+			outLocs[z] += cc.chunk.length;
+			zoneCounts[z]++;
+			//deltaLoc += 3;
+		}
+		for(int yy = 0; yy < deltaIndeces.length; yy++)
+		{
+			for(int xx = 0; xx < deltaIndeces[yy].length; xx++)
+			{
+				int idx = deltaIndeces[yy][xx];
+				int loc = chunks[idx].loc - SNESRom.MAP_LOC;
+				rom.write3Bytes(deltaLoc, loc);
+				deltaLoc += 3;
+			}
+		}
+		System.out.println("Zone starts=" + Arrays.toString(rom.mapLocs));
+		System.out.println("Zone ends=" + Arrays.toString(outLocs));
+		System.out.println("Zone counts=" + Arrays.toString(zoneCounts));
+	}
+
+	public byte[] getCompressedMap() 
+	{
+		if(chunks == null)
+			return null;
+		else
+		{
+			int sz = 0;
+			for(int i = 0; i < chunks.length; i++)
+				sz += chunks[i].chunk.length;
+			byte[] rv = new byte[sz];
+			int w = 0;
+			for(int i = 0; i < chunks.length; i++)
+			{
+				byte[] c = chunks[i].chunk;
+				for(int j = 0; j < c.length; j++)
+				{
+					rv[w] = c[j];
+					w++;
+				}
+			}
+			return rv;
+		}
 	}
 }
 
@@ -12988,6 +13900,54 @@ class IndexedList
 	{
 		// TODO Auto-generated method stub
 		list.clear();
+	}
+	
+	public int addAll(IndexedList o)
+	{
+		int a = list.size();
+		ArrayList<Indexed> nl = new ArrayList<Indexed>(a + o.size());
+		int i = 0;
+		int j = 0;
+		long ii = 0;
+		long jj = 0;
+		while(true)  //simple merge
+		{
+			if(i == list.size())
+			{
+				nl.addAll(j, o.list);
+				break;
+			}
+			else if(j == list.size())
+			{
+				nl.addAll(i, list);
+				break;
+			}
+			else
+			{
+				ii = list.get(i).getIndex();
+				jj = o.list.get(j).getIndex();
+				if(ii < jj)
+				{
+					nl.add(list.get(i));
+					i++;
+				}
+				else if(ii == jj)
+				{
+					if(allowDuplicates)
+					{
+						nl.add(list.get(i));
+						i++;
+					}
+				}
+				else
+				{
+					nl.add(o.list.get(j));
+					j++;
+				}
+			}
+		}
+		list = nl;
+		return nl.size();
 	}
 	
 	public int add(Indexed newObj)
@@ -14544,7 +15504,9 @@ class RandomizerWindow extends JFrame implements ActionListener
 		}
 		getContentPane().add(topPane, BorderLayout.NORTH);
 		if(origTheme != null)
+		{
 			getContentPane().add(jtp, BorderLayout.CENTER);
+		}
 		else
 		{
 			String info = "Data from the original Uncharted Waters: New Horizons ROM \n" +
@@ -14848,8 +15810,11 @@ class RandomizerWindow extends JFrame implements ActionListener
 		JPanel mapPanel = new JPanel(new GridLayout(2,2));
 		opts = new ArrayList<FlagPanel>();
 		
-		String[] mapT = {"Randomize Map", "View minimap of generated ROM", "Randomize Starting Ship", "Randomize Initial Price Indeces", "Randomize goods sold at all market types"};
-		String[] mapF = {"M", "V", "S", "R", "K"};
+		String[] mapT = {"Randomize Map", "View minimap of generated ROM", "Randomize Starting Ship", 
+				         "Randomize Initial Price Indeces", "Randomize goods sold at all market types",
+				         "Eliminate storms in the known world", "Eliminate new ship building time",
+				         "24/7 shop and services availability"};
+		String[] mapF = {"M", "V", "S", "R", "K", "s", "b", "t"};
 		FlagPanel fp = new FlagPanel("General", mapT, mapF, true, false, false, this);
 		mapPanel.add(fp);
 		opts.add(fp);
@@ -15579,7 +16544,7 @@ public class UWNHRando
 		int sz = cc.getMapSize(bts);
 		int maxLen = 8;
 		int refreshCount = 0;
-		while(sz > 76000)
+		while(sz > 80000)
 		{
 			gm.restoreBackup();
 			int sunk = 0;
@@ -15607,10 +16572,15 @@ public class UWNHRando
 		//GameMapWindow gmw = new GameMapWindow(gm);
 		//we have a viable map
 		//now let's test it
-		byte[] cm = cc.collateMap(bts);
+		int[] avail = {90000};
+		int[] availLoc = {0};
+		cc.collateMap(bts, avail, gm);  //for the test, the map will not be split up
 		int[][] deltas = cc.getDeltas();
 		int[][] deltaI = cc.getDeltaIndeces();
 		byte[][] dmap = new byte[1080][2160];
+		
+		byte[] cm = gm.getCompressedMap();
+		
 		for(int yy = 0; yy < 45; yy++)
 		{
 			for(int xx = 0; xx < 90; xx++)
@@ -16181,6 +17151,32 @@ public class UWNHRando
 	{
 		setSeed((long) (Math.random() * Long.MAX_VALUE));
 		RandomizerWindow rw = new RandomizerWindow();
+	}
+	
+	public static void mainStormView()
+	{
+		try 
+		{
+			SNESRom uwnh = new SNESRom("C:\\Users\\aearm\\Desktop\\x86-64\\Uncharted Waters - New Horizons.smc");
+			//Compressor comp = new Compressor(uwnh);
+			GameMap map = new GameMap();
+			map.decompressOrigMap(uwnh);
+			ArrayList<Integer> ev = uwnh.getEventRects();
+			GameMapWindow gmw = new GameMapWindow(map, ev);
+			
+			BufferedImage mapImage = gmw.getMapImage();
+			File outFile = new File("C:\\Users\\aearm\\Desktop\\UWNHRando\\GameMap.png");
+			if(!outFile.exists())
+				outFile.createNewFile();
+			ImageIO.write(mapImage, "png", outFile);
+			//outFile.close();
+			
+			uwnh.stormReport();
+		}
+		catch(Exception ex)
+		{
+			ex.printStackTrace();
+		}
 	}
 	
 	/**

@@ -18,6 +18,12 @@ You can also decide to view the game's Mini-map upon generation of the ROM.  A s
 
 Also, the randomizer creates a "makeLog.txt" and "diffreport.txt" file that is used for debugging purposes when a ROM is generated.  MakeLog logs activity of the rom generator and Diffreport lists byte-by-byte changes to the ROM from the original.
 
+New in ver 1.10:  The known world is now visible on the minimap from the beginning of the game.  You can now turn off storms occurring in this region, so that you don't start off in a region full of storms.
+
+You can turn off ship build times for new ships, so they will be available for use right when you order them.  You can turn on 24/7 availability for shops and port services, so you don't need to wait or visit inns to wait for things to open.
+
+Also, more roms should generate, and slightly faster, as I reworked some of the ROM memory placement and port placement.  Also, all villages and ports should now be accessable (Before there was a slight chance of a port being inaccessable; the new algorithm is faster and eliminates the possiblity of an inaccessible port or village).
+
 III. Theme generation
 World themes allow customization of the Uncharted Waters world by allowing to rename all ports, kingdoms, map regions, and commodities.
 
@@ -73,7 +79,7 @@ Notes:
 IV.  Known issues (bugs) 
 -Junk may appear at the top edge of the game minimap.  This started happening when I allowed maps to have more than 490 minimap tiles.  (It's better than invalidating the ROM IMHO).
 -There may be small, random black spots on the game overworld.  (I don't know what causes this)
--There is a (very) minimal chance that ports may be placed in an inaccessible location.
+-There is a (very) minimal chance that ports may be placed in an inaccessible location. (Should be fixed in ver 1.04)
 -The game may softlock if you change the graphical tileset ("Culture") of capitals. (Again, the solution is to simply leave those alone).
 -This version has not been completely tested as of this release.  Thus, randomizing the map may make the game impossible to beat.  
  (Especially for Pietro, who needs to sail from Genoa to Lisbon right at the start of the scenario).
