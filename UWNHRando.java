@@ -215,6 +215,9 @@ class SNESRom
 		filename = fn;
 		byte[] allData = loadData(fn);
 		setHomeDir(fn);
+		mapLocs = new int[4];
+		mapLocs[0] = MAP_LOC;
+		noKWStorms = false;
 		if(allData.length == (1024 * 1024 * 2))  //headerless
 		{
 			data = allData;
@@ -226,9 +229,7 @@ class SNESRom
 			header[i] = allData[i];
 		for(int i = 512; i < allData.length; i++)
 			data[i - 512] = allData[i];
-		mapLocs = new int[4];
-		mapLocs[0] = MAP_LOC;
-		noKWStorms = false;
+		
 		//setupInventoryList();
 		//mapSwap = false;
 		//availGoodCount = new byte[46];
@@ -974,6 +975,43 @@ class SNESRom
 		
 	}
 	
+	//returns a parallel list of points and string
+	public ArrayList[] getDiscoveryData()
+	{
+		int vill = 584459 - 512;
+		int end = 585144 - 512;
+		ArrayList<Point> pts = new ArrayList<Point>();
+		while(vill < end)
+		{
+			int x = readShort(vill);
+			vill += 2;
+			int y = readShort(vill);
+			vill += 5;
+			pts.add(new Point(x, y));
+		}
+		ArrayList<String> strs = new ArrayList<String>();
+		int n = 980597 - 512;
+		String s = "";
+		while(true)
+		{
+			byte b = data[n];
+			if(b == 0)
+			{
+				strs.add(s);
+				if(strs.size() == pts.size())
+					break;
+				s = "";
+			}
+			else if(b == 27)  //skip this char AND next char
+				n++;
+			else
+				s += (char) b;  //put it in
+			n++;
+		}
+		ArrayList[] rv = {pts, strs};
+		return rv;
+	}
+	
 	private void insertNewStartPositions(GameMap.PortData[] pds) 
 	{
 		int[] nli = {0,1,29,33,8,2};
@@ -1445,15 +1483,18 @@ class SNESRom
 		}
 		else   //new ROM going to Randomizer's directory
 		{
-			homeDir = newDir;
+			homeDir = newDir + File.separator;
 		}
 		PrintStream console = System.out;
 		PrintStream log = null;
+		PrintStream consoleErr = System.err;
 		try 
 		{
 			log = new PrintStream(new File(homeDir + "makeLog.txt"));
 			System.setOut(log);
+			System.setErr(log);
 			System.out.println("== Making rom " + fn + " ==");
+			System.err.println("Errors will be logged here as well");
 		} 
 		catch (FileNotFoundException e) 
 		{
@@ -1586,14 +1627,17 @@ class SNESRom
 			log.flush();
 			log.close();
 			System.setOut(console);
-			
+			System.setErr(consoleErr);
 			//rv.gameMap = gameMap;
 			return rv;
 		}
 		catch(Exception ex)
 		{
 			ex.printStackTrace();
+			log.flush();
+			log.close();
 			System.setOut(console);
+			System.setErr(consoleErr);
 			return null;
 		}
 		//return this;
@@ -9429,6 +9473,9 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 	
 	ArrayList<Integer> eventData;
 	
+	ArrayList<Point> pois;
+	ArrayList<String> poiData;
+	
 	GameMapPanel(GameMap mp)
 	{
 		map = mp;
@@ -9452,6 +9499,12 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 	{
 		this(mp);
 		eventData = events;
+	}
+	
+	public void setPoiData(ArrayList<Point> pts, ArrayList<String> strs)
+	{
+		pois = pts;
+		poiData = strs;
 	}
 	
 	public BufferedImage getMapImage()
@@ -9592,6 +9645,18 @@ class GameMapPanel extends JPanel implements MouseListener, MouseMotionListener
 		g.drawString(col, 20, 80);
 		g.drawString(col2, 20, 100);
 		g.drawString(flood, 20, 120);
+		if(pois != null)
+		{
+			for(int i = 0; i < pois.size(); i++)
+			{
+				Point p = pois.get(i);
+				if(p.x == rx && p.y == ry)
+				{
+					g.drawString(poiData.get(i), 20, 140);
+					break;
+				}
+			}
+		}
 	}
 
 	@Override
@@ -17151,6 +17216,7 @@ public class UWNHRando
 	{
 		setSeed((long) (Math.random() * Long.MAX_VALUE));
 		RandomizerWindow rw = new RandomizerWindow();
+		//mainStormView();
 	}
 	
 	public static void mainStormView()
@@ -17163,12 +17229,16 @@ public class UWNHRando
 			map.decompressOrigMap(uwnh);
 			ArrayList<Integer> ev = uwnh.getEventRects();
 			GameMapWindow gmw = new GameMapWindow(map, ev);
-			
-			BufferedImage mapImage = gmw.getMapImage();
+			ArrayList[] lst = uwnh.getDiscoveryData();
+			/*for(int i = 0; i < lst[1].size(); i++)
+				if(lst[1].get(i).equals("Python"))
+					System.out.println("Python is at " + lst[0].get(i).toString());*/
+			gmw.gmp.setPoiData(lst[0], lst[1]);
+			/*BufferedImage mapImage = gmw.getMapImage();
 			File outFile = new File("C:\\Users\\aearm\\Desktop\\UWNHRando\\GameMap.png");
 			if(!outFile.exists())
 				outFile.createNewFile();
-			ImageIO.write(mapImage, "png", outFile);
+			ImageIO.write(mapImage, "png", outFile);*/
 			//outFile.close();
 			
 			uwnh.stormReport();
